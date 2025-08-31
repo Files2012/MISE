@@ -1,13 +1,23 @@
-# ====== START OF FILE: MISE.py ======
 import os
 import webbrowser
 import threading
 import time
 import socket
-import requests
-from flask import Flask, render_template_string, send_from_directory, request, redirect
+import sys
+import mimetypes
+import random
+import string
+import json
+from flask import Flask, render_template_string, send_from_directory, request, jsonify, redirect
 from datetime import datetime
 from waitress import serve
+
+# Mengatur tipe MIME yang tidak terdefinisi secara default
+mimetypes.add_type('video/mp4', '.mp4')
+mimetypes.add_type('audio/mpeg', '.mp3')
+mimetypes.add_type('image/jpeg', '.jpeg')
+mimetypes.add_type('image/jpg', '.jpg')
+mimetypes.add_type('image/png', '.png')
 
 app = Flask(__name__)
 server_thread = None
@@ -16,6 +26,8 @@ host = "0.0.0.0"
 port = 5000
 is_running = False
 start_time = datetime.now()
+shutdown_code = None
+main_html_file = None
 
 # HTML Template untuk Admin Panel
 ADMIN_PANEL = r"""
@@ -157,6 +169,7 @@ ADMIN_PANEL = r"""
         .btn:active { transform: translateY(1px); }
         .btn.small { height: 28px; padding: 0 10px; border-radius: 8px; }
         .btn.ghost { background: transparent; border-color: transparent; }
+        .btn.install { background-color: var(--ok); border-color: var(--ok); color: #fff; }
 
         .start { font-weight: 700; letter-spacing: .2px; }
 
@@ -394,14 +407,79 @@ ADMIN_PANEL = r"""
         .context-item:hover {
             background: rgba(255,255,255,.06);
         }
-
-        .update-available {
-            color: var(--ok);
-            font-weight: 600;
+        
+        .app-item {
             display: flex;
             align-items: center;
-            gap: 8px;
+            justify-content: space-between;
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.04);
         }
+
+        /* Gaya Khusus Ebytor */
+        .ebytor-container {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .editor-area {
+            display: flex;
+            gap: 12px;
+        }
+        .editor-area .card {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            height: 400px; /* Atau sesuaikan tinggi */
+        }
+        .editor-area textarea {
+            flex: 1;
+            background: #0a0c10;
+            border: none;
+            font-family: monospace;
+            font-size: 0.9em;
+            resize: none;
+        }
+        .editor-area iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: #fff;
+        }
+
+        /* Gaya Modal Baru */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0,0,0,0.6);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 10000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s ease;
+        }
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        .modal {
+            background: var(--panel);
+            padding: 24px;
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            max-width: 400px;
+            width: 90%;
+            transform: translateY(-20px);
+            transition: transform 0.3s ease;
+        }
+        .modal-overlay.active .modal {
+            transform: translateY(0);
+        }
+        .modal h3 { margin-top: 0; }
 
         @keyframes pop { from { transform: translateY(8px) scale(.98); opacity: 0 } to { transform: none; opacity: 1 } }
         @keyframes fade { from { opacity: 0 } to { opacity: 1 } }
@@ -445,6 +523,7 @@ ADMIN_PANEL = r"""
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18v13H3z"/><path d="M3 7L6 4h6l3 3"/></svg>
             <div><div class="title">File Explorer</div><div class="desc">Jelajahi file demo</div></div>
         </div>
+        <div class="divider"></div>
         <div class="menu-item" id="openMines">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M2 12h2"/><path d="M20 12h2"/></svg>
             <div><div class="title">Minesweeper</div><div class="desc">Mini game</div></div>
@@ -453,18 +532,24 @@ ADMIN_PANEL = r"""
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="6" height="6"/><rect x="15" y="3" width="6" height="6"/><rect x="3" y="15" width="6" height="6"/><rect x="15" y="15" width="6" height="6"/></svg>
             <div><div class="title">Tetris</div><div class="desc">Mini game</div></div>
         </div>
+        <div class="divider"></div>
+        <div class="menu-item" id="openStoreFromMenu">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 100 20 10 10 0 000-20z"/><path d="M12 6v12M16 12H8"/></svg>
+            <div><div class="title">App Store</div><div class="desc">Instal aplikasi baru</div></div>
+        </div>
+        <div id="installedAppsMenu">
+            </div>
         <div class="menu-item" id="aboutBtn">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 8h.01"/><path d="M11 12h1v4h1"/></svg>
             <div><div class="title">Tentang MIOS</div><div class="desc">Demo UI Taskbar + Admin Panel</div></div>
         </div>
-
         <div class="divider"></div>
         <div class="menu-item" id="logoutBtn">
             <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
             <div><div class="title">Logout</div><div class="desc">Keluar dari sesi ini</div></div>
         </div>
         <div class="menu-item" id="shutdownBtn">
-            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.36 17.5A9 9 0 1112 2.5a9 9 0 016.36 15z"/></svg>
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/><path d="M18.36 17.5A9 0 1112 2.5a9 0 016.36 15z"/></svg>
             <div><div class="title">Shutdown Server</div><div class="desc">Matikan server secara permanen</div></div>
         </div>
     </div>
@@ -488,7 +573,7 @@ ADMIN_PANEL = r"""
                 <div class="grid cols-2">
                     <div class="card"><h3>Status Server</h3><div class="muted">Uptime</div><div class="stat" id="uptime">00:00:00</div><div class="row"><span class="pill">CPU: <span id="cpu">7%</span></span><span class="pill">RAM: <span id="ram">35%</span></span><span class="pill">Users: <span id="usersOnline">2</span></span></div></div>
                     <div class="card"><h3>Aksi Cepat</h3><div class="row"><button class="btn" id="btnRestart">Restart Service</button><button class="btn" id="btnClearCache">Clear Cache</button></div><p class="muted" style="margin-top:8px">Aksi ini hanya simulasi untuk demo.</p></div>
-                    <div class="card"><h3>Info</h3><p class="muted">Ini adalah demo Admin Panel berbasis HTML/CSS/JS.</p><div id="update-info-section" style="margin-top:10px;"></div></div>
+                    <div class="card"><h3>Info</h3><p class="muted">Ini adalah demo Admin Panel berbasis HTML/CSS/JS.</p></div>
                     <div class="card"><h3>Notifikasi</h3><div id="notifArea" class="muted">Belum ada notifikasi.</div></div>
                 </div>
             </div>
@@ -568,72 +653,428 @@ ADMIN_PANEL = r"""
         <div class="resize-handle bottom-right"></div>
     </div>
 
-    <div class="taskbar"><div class="tb-left"><button class="btn start" id="startBtn">◎ Start</button><button class="btn" id="openAdminBtn" title="Buka Admin Panel"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1l3 5 5 .5-3.6 3.4.9 5-5.3-2.7-5.3 2.7.9-5L4 6.5 9 6z"/></svg>Admin Panel</button></div><div class="tb-center apps-area" id="tasks"></div><div class="tb-right"><div class="btn ghost clock" id="clock">--:--</div></div></div>
+    <div class="window" id="clockWindow" data-title="Clock" style="left: 300px; top: 200px; width: 320px; max-width: 90vw; min-height: auto;">
+        <div class="titlebar" data-drag><div class="title">Clock</div><div class="actions"><button class="btn small ghost" data-minimize title="Minimize">—</button><button class="btn small ghost" data-close title="Close">✕</button></div></div>
+        <div class="content" style="display: flex; flex-direction: column; align-items: center; gap: 20px;">
+            <h3>Jam Analog</h3>
+            <canvas id="analogClockCanvas" width="200" height="200"></canvas>
+            <div class="divider" style="width: 100%;"></div>
+            <h3>Timer</h3>
+            <div style="font-size: 2rem; font-weight: bold;" id="timerDisplay">00:00</div>
+            <div class="row" style="width: 100%;">
+                <button class="btn" id="timerStart">Start</button>
+                <button class="btn" id="timerPause" style="display: none;">Pause</button>
+                <button class="btn" id="timerReset">Reset</button>
+            </div>
+            <input type="number" id="timerInput" placeholder="Detik" style="width: 100%; margin-top: 10px;">
+        </div>
+        <div class="resize-handle top"></div>
+        <div class="resize-handle bottom"></div>
+        <div class="resize-handle left"></div>
+        <div class="resize-handle right"></div>
+        <div class="resize-handle top-left"></div>
+        <div class="resize-handle top-right"></div>
+        <div class="resize-handle bottom-left"></div>
+        <div class="resize-handle bottom-right"></div>
+    </div>
 
-    <div class="toast" id="toast"></div>
+    <div class="window" id="displayerWindow" data-title="Displayer" style="left: 280px; top: 180px; width: 680px; min-width: 480px; max-width: 90vw;">
+        <div class="titlebar" data-drag><div class="title">Displayer</div><div class="actions"><button class="btn small ghost" data-minimize title="Minimize">—</button><button class="btn small ghost" data-maximize title="Maximize">◻</button><button class="btn small ghost" data-close title="Close">✕</button></div></div>
+        <div class="content" style="display:flex; flex-direction: column; gap:12px;">
+            <div id="mediaViewer" style="height: 360px; display: flex; justify-content: center; align-items: center; background: rgba(255,255,255,.05); border-radius:12px; overflow: hidden; position: relative;">
+                <p class="muted">Pilih file media dari daftar di bawah.</p>
+            </div>
+            <div class="card" style="flex:1;">
+                <h3>Pilih File</h3>
+                <div id="mediaFileList" style="max-height: 180px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 8px;">
+                    </div>
+            </div>
+        </div>
+        <div class="resize-handle top"></div>
+        <div class="resize-handle bottom"></div>
+        <div class="resize-handle left"></div>
+        <div class="resize-handle right"></div>
+        <div class="resize-handle top-left"></div>
+        <div class="resize-handle top-right"></div>
+        <div class="resize-handle bottom-left"></div>
+        <div class="resize-handle bottom-right"></div>
+    </div>
+    
+    <div class="window" id="ebytorWindow" data-title="Ebytor" style="left: 100px; top: 100px; width: 800px; max-width: 95vw; min-width: 500px; min-height: 480px;">
+        <div class="titlebar" data-drag>
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18l4-4-4-4M8 6L4 10l4 4"/><path d="M10 20l4-16"/></svg>
+            <div class="title">Ebytor</div>
+            <div class="actions">
+                <button class="btn small ghost" data-minimize title="Minimize">—</button>
+                <button class="btn small ghost" data-maximize title="Maximize">◻</button>
+                <button class="btn small ghost" data-close title="Close">✕</button>
+            </div>
+        </div>
+        <div class="content ebytor-container">
+            <div class="row" style="justify-content: flex-end;">
+                <button class="btn" id="openEbytorFileBtn">Open</button>
+                <button class="btn" id="saveEbytorFileBtn">Save</button>
+                <button class="btn" id="runEbytorBtn">Run HTML</button>
+            </div>
+            <div class="editor-area">
+                <div class="card">
+                    <h3>HTML Code</h3>
+                    <textarea id="ebytorCode"></textarea>
+                </div>
+                <div class="card">
+                    <h3>Preview</h3>
+                    <iframe id="ebytorPreview"></iframe>
+                </div>
+            </div>
+        </div>
+        <div class="resize-handle top"></div>
+        <div class="resize-handle bottom"></div>
+        <div class="resize-handle left"></div>
+        <div class="resize-handle right"></div>
+        <div class="resize-handle top-left"></div>
+        <div class="resize-handle top-right"></div>
+        <div class="resize-handle bottom-left"></div>
+        <div class="resize-handle bottom-right"></div>
+    </div>
+    
+    <div class="window" id="storeWindow" data-title="App Store" style="left: 280px; top: 180px; width: 480px; min-width: 420px; max-width: 90vw;">
+        <div class="titlebar" data-drag><div class="title">App Store</div><div class="actions"><button class="btn small ghost" data-minimize title="Minimize">—</button><button class="btn small ghost" data-maximize title="Maximize">◻</button><button class="btn small ghost" data-close title="Close">✕</button></div></div>
+        <div class="content">
+            <div class="card">
+                <h3>Aplikasi Tersedia</h3>
+                <p class="muted" style="margin-bottom:12px;">Pilih aplikasi untuk diinstal.</p>
+                <div id="storeApps"></div>
+            </div>
+        </div>
+        <div class="resize-handle top"></div>
+        <div class="resize-handle bottom"></div>
+        <div class="resize-handle left"></div>
+        <div class="resize-handle right"></div>
+        <div class="resize-handle top-left"></div>
+        <div class="resize-handle top-right"></div>
+        <div class="resize-handle bottom-left"></div>
+        <div class="resize-handle bottom-right"></div>
+    </div>
+
+    <div class="taskbar"><div class="tb-left"><button class="btn start" id="startBtn">◎ Start</button><button class="btn" id="openAdminBtn" title="Buka Admin Panel"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 1l3 5 5 .5-3.6 3.4.9 5-5.3-2.7-5.3 2.7.9-5L4 6.5 9 6z"/></svg></button><button class="btn" id="openCmdBtn" title="Buka Command Prompt"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17l6-6-6-6"/><path d="M12 19h8"/></svg></button><button class="btn" id="openExplorerBtn" title="Buka File Explorer"><svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7h18v13H3z"/><path d="M3 7L6 4h6l3 3"/></svg></button></div><div class="tb-center"><div class="apps-area" id="tasks"></div></div><div class="tb-right"><div class="clock" id="clock"></div></div></div>
 
     <div id="shutdown-screen">
         <div class="shutdown-content">
-            <h2 id="shutdown-title">Shutdown MIOS</h2>
-            <p id="shutdown-desc">Masukkan kode otentikasi dari konsol utama untuk melanjutkan.</p>
+            <h2>Shutdown Server</h2>
+            <p>Untuk mengonfirmasi, masukkan kode unik yang ditampilkan di konsol.</p>
             <div class="shutdown-input-group">
-                <input type="password" id="shutdownCodeInput" placeholder="Masukkan kode..." autocomplete="off">
+                <input type="text" id="shutdownCodeInput" placeholder="Masukkan kode..." />
             </div>
-            <div id="shutdownCountdown" class="countdown-text"></div>
+            <p id="shutdown-msg" style="margin-top: 10px;"></p>
+        </div>
+    </div>
+    
+    <div class="context-menu" id="explorerContextMenu">
+        <div class="context-item" data-action="open-with-displayer">
+            <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 19H7a2 2 0 01-2-2V7a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2z"/><circle cx="12" cy="12" r="3"/><path d="M22 2l-2 2m-8 8l-2-2M2 22l2-2"/></svg>
+            <span>[📺] Open With Displayer</span>
+        </div>
+    </div>
+    
+    <div class="modal-overlay" id="fileModal">
+        <div class="modal">
+            <h3 id="modalTitle">Open File</h3>
+            <div id="modal-file-list" style="max-height: 250px; overflow-y: auto;">
+                </div>
+            <div style="margin-top: 12px;">
+                <label for="newFileName" id="fileNameLabel">File Name</label>
+                <input type="text" id="newFileName" placeholder="file.html" />
+            </div>
+            <div class="row" style="margin-top: 16px;">
+                <button class="btn" id="modalOkBtn" style="flex: 1;">OK</button>
+                <button class="btn ghost" id="modalCancelBtn" style="flex: 1;">Cancel</button>
+            </div>
         </div>
     </div>
 
     <script>
-        const $ = (sel, root = document) => root.querySelector(sel);
-        const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
-        const toast = (msg) => { const t = $('#toast'); t.textContent = msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 1800); };
-        
-        const CURRENT_VERSION = '1.0.0';
+        const $ = (s) => document.querySelector(s);
+        const $$ = (s) => document.querySelectorAll(s);
+
+        const ADMIN_API_INFO = "/api/info";
+        const ADMIN_API_FILES = "/api/files";
+        const ADMIN_API_PREVIEW = "/api/preview_file";
+        const ADMIN_API_CMD = "/api/cmd";
+        const ADMIN_API_SHUTDOWN = "/api/shutdown";
+        const ADMIN_API_MEDIA = "/api/media";
+        const ADMIN_API_FILE_OPEN = "/api/file/open";
+        const ADMIN_API_FILE_SAVE = "/api/file/save";
+
         let loggedInUser = null;
-
+        let activeWindows = [];
+        let zIndexCounter = 10;
         const wallpapers = {
-            'default': 'radial-gradient(1200px 700px at 70% -10%, #223 0%, #111 55%, #0a0c10 100%)',
-            'nature': 'url("https://images.unsplash.com/photo-1547844111-d1c9e8d35f5c?q=80&w=2670&auto=format&fit=crop")',
-            'abstract': 'url("https://images.unsplash.com/photo-1622542792686-2a62a9c37e6f?q=80&w=2574&auto=format&fit=crop")'
+            'default': `radial-gradient(1200px 700px at 70% -10%, #223 0%, #111 55%, #0a0c10 100%), var(--bg)`,
+            'nature': `url('https://source.unsplash.com/random/1920x1080?nature')`,
+            'abstract': `url('https://source.unsplash.com/random/1920x1080?abstract')`,
         };
+        const CURRENT_VERSION = '1.0.0';
+        const serverStartTime = new Date();
+        const INSTALLED_APPS = {}; // { id: { name, icon, windowEl } }
+        let currentExplorerPath = '';
 
-        const fileSystem = {
-            'C:': {
-                'Users': {
-                    'Admin': {
-                        'Documents': {
-                            'catatan.txt': { type: 'text', content: 'Ini adalah catatan penting.\nJaga kerahasiaan data.' },
-                            'README.md': { type: 'text', content: '# Proyek MIOS\n\nSelamat datang di File Explorer!' },
-                        },
-                        'Images': {
-                            'nature.jpg': { type: 'image', content: 'https://images.unsplash.com/photo-1547844111-d1c9e8d35f5c?q=80&w=2670&auto=format&fit=crop' },
-                            'abstract.png': { type: 'image', content: 'https://images.unsplash.com/photo-1622542792686-2a62a9c37e6f?q=80&w=2574&auto=format&fit=crop' },
-                        }
-                    }
-                },
-                'Server': {
-                    'admin': {
-                        'logs.txt': { type: 'text', content: 'Ini adalah log server.' }
-                    },
-                    'desktop': {}
-                }
+        // Daftar aplikasi yang tersedia di store
+        const STORE_APPS = [
+            {
+                id: 'clockApp',
+                name: 'Clock',
+                icon: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>`,
+                desc: 'Jam analog dan timer.',
+                windowId: 'clockWindow'
+            },
+            {
+                id: 'displayerApp',
+                name: 'Displayer',
+                icon: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 19H7a2 2 0 01-2-2V7a2 2 0 012-2h10a2 2 0 012 2v10a2 2 0 01-2 2z"/><circle cx="12" cy="12" r="3"/><path d="M22 2l-2 2m-8 8l-2-2M2 22l2-2"/></svg>`,
+                desc: 'Pemutar media untuk audio/video/gambar.',
+                windowId: 'displayerWindow'
+            },
+            {
+                id: 'ebytorApp',
+                name: 'Ebytor',
+                icon: `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 18l4-4-4-4M8 6L4 10l4 4"/><path d="M10 20l4-16"/></svg>`,
+                desc: 'Editor & Runner untuk kode HTML.',
+                windowId: 'ebytorWindow'
             }
-        };
+        ];
 
-        let currentPath = fileSystem['C:'];
-        let selectedFile = null;
+        // --- Dragging Logic ---
+        function attachDragListeners(win) {
+            const bar = win.querySelector('[data-drag]');
+            if (!bar) return;
+            let sx, sy, sl, st, dragging = false;
+            bar.addEventListener('mousedown', (e) => {
+                if (e.target.closest('.actions')) return;
+                dragging = true;
+                bringToFront(win);
+                sx = e.clientX;
+                sy = e.clientY;
+                sl = parseInt(win.style.left || '80', 10);
+                st = parseInt(win.style.top || '80', 10);
+                document.body.style.userSelect = 'none';
+                win.classList.add('dragging');
+            });
+            document.addEventListener('mousemove', (e) => {
+                if (!dragging) return;
+                const nl = sl + (e.clientX - sx);
+                const nt = st + (e.clientY - sy);
+                win.style.left = Math.min(innerWidth-80, Math.max(-win.offsetWidth+80, nl)) + 'px';
+                win.style.top = Math.min(innerHeight-120, Math.max(0, nt)) + 'px';
+            });
+            document.addEventListener('mouseup', () => {
+                dragging = false;
+                document.body.style.userSelect = '';
+                win.classList.remove('dragging');
+            });
+        }
+        
+        // --- Resizing Logic ---
+        function attachResizeListeners(win) {
+            const handles = win.querySelectorAll('.resize-handle');
+            handles.forEach(handle => {
+                let resizing = false;
+                let startX, startY, startWidth, startHeight, startLeft, startTop;
+                
+                handle.addEventListener('mousedown', (e) => {
+                    e.stopPropagation();
+                    resizing = true;
+                    bringToFront(win);
+                    startX = e.clientX;
+                    startY = e.clientY;
+                    startWidth = win.offsetWidth;
+                    startHeight = win.offsetHeight;
+                    startLeft = win.offsetLeft;
+                    startTop = win.offsetTop;
+                    document.body.style.userSelect = 'none';
+                    document.body.style.cursor = handle.style.cursor;
+                });
+                
+                document.addEventListener('mousemove', (e) => {
+                    if (!resizing) return;
+                    
+                    let newWidth = startWidth;
+                    let newHeight = startHeight;
+                    let newLeft = startLeft;
+                    let newTop = startTop;
+                    
+                    const dx = e.clientX - startX;
+                    const dy = e.clientY - startY;
 
+                    if (handle.classList.contains('right')) {
+                        newWidth = Math.max(win.style.minWidth ? parseInt(win.style.minWidth) : 100, startWidth + dx);
+                    }
+                    if (handle.classList.contains('bottom')) {
+                        newHeight = Math.max(win.style.minHeight ? parseInt(win.style.minHeight) : 100, startHeight + dy);
+                    }
+                    if (handle.classList.contains('left')) {
+                        newWidth = Math.max(win.style.minWidth ? parseInt(win.style.minWidth) : 100, startWidth - dx);
+                        newLeft = startLeft + dx;
+                    }
+                    if (handle.classList.contains('top')) {
+                        newHeight = Math.max(win.style.minHeight ? parseInt(win.style.minHeight) : 100, startHeight - dy);
+                        newTop = startTop + dy;
+                    }
+                    
+                    win.style.width = newWidth + 'px';
+                    win.style.height = newHeight + 'px';
+                    win.style.left = newLeft + 'px';
+                    win.style.top = newTop + 'px';
+                });
+                
+                document.addEventListener('mouseup', () => {
+                    resizing = false;
+                    document.body.style.userSelect = '';
+                    document.body.style.cursor = 'default';
+                });
+            });
+        }
+
+
+        // --- Window Management ---
+        function openWindow(win) {
+            const isMinimized = win.classList.contains('minimized');
+            
+            // Bring to front and activate
+            bringToFront(win);
+            win.classList.add('active');
+            win.classList.remove('minimized');
+            
+            // Create taskbar button if it doesn't exist
+            let taskBtn = $(`[data-for="${win.id}"]`);
+            if(!taskBtn){
+                const title = win.dataset.title || win.querySelector('.title')?.textContent || win.id;
+                taskBtn = createTaskButton(win.id, title);
+                $('#tasks').appendChild(taskBtn);
+                activeWindows.push(win);
+            }
+        }
+
+        function closeWindow(win) {
+            if (!win) return;
+            win.classList.remove('active');
+            win.classList.add('minimized');
+            const index = activeWindows.indexOf(win);
+            if (index > -1) {
+                activeWindows.splice(index, 1);
+            }
+            const taskBtn = $(`[data-for="${win.id}"]`);
+            if (taskBtn) taskBtn.remove();
+        }
+
+        function minimizeWindow(win) {
+            if (!win) return;
+            win.classList.remove('active');
+            win.classList.add('minimized');
+            updateTaskButtonState(win);
+        }
+
+        function maximizeWindow(win) {
+            if (!win) return;
+            const isMaximized = win.dataset.max === '1';
+            
+            if (isMaximized) {
+                win.style.left = win.dataset.prevLeft || '80px';
+                win.style.top = win.dataset.prevTop || '80px';
+                win.style.width = win.dataset.prevWidth || '720px';
+                win.style.height = win.dataset.prevHeight || 'auto';
+                win.dataset.max = '0';
+            } else {
+                win.dataset.prevLeft = win.style.left;
+                win.dataset.prevTop = win.style.top;
+                win.dataset.prevWidth = win.style.width;
+                win.dataset.prevHeight = win.style.height;
+                win.style.left = '10px';
+                win.style.top = '10px';
+                win.style.width = (innerWidth - 20) + 'px';
+                win.style.height = (innerHeight - 70) + 'px';
+                win.dataset.max = '1';
+            }
+            bringToFront(win);
+            updateTaskButtonState(win);
+        }
+
+        function bringToFront(win) {
+            zIndexCounter++;
+            win.style.zIndex = zIndexCounter;
+            $$('.task.active').forEach(btn => btn.classList.remove('active'));
+            const taskBtn = $(`[data-for="${win.id}"]`);
+            if (taskBtn) taskBtn.classList.add('active');
+        }
+
+        function updateTaskButtonState(win) {
+            const taskBtn = $(`[data-for="${win.id}"]`);
+            if (taskBtn) {
+                taskBtn.classList.toggle('active', win.classList.contains('active'));
+            }
+        }
+        
+        function createTaskButton(id, title) {
+            const btn = document.createElement('div');
+            btn.className = 'btn task';
+            btn.dataset.for = id;
+            btn.textContent = title;
+            btn.addEventListener('click', () => {
+                const win = $('#' + id);
+                if (win) {
+                    if (win.classList.contains('active')) {
+                        minimizeWindow(win);
+                    } else {
+                        openWindow(win);
+                    }
+                }
+            });
+            return btn;
+        }
+
+        $$('.window').forEach(win => {
+            attachDragListeners(win);
+            attachResizeListeners(win);
+            const closeBtn = win.querySelector('[data-close]');
+            if (closeBtn) closeBtn.addEventListener('click', () => closeWindow(win));
+            const minBtn = win.querySelector('[data-minimize]');
+            if (minBtn) minBtn.addEventListener('click', () => minimizeWindow(win));
+            const maxBtn = win.querySelector('[data-maximize]');
+            if (maxBtn) maxBtn.addEventListener('click', () => maximizeWindow(win));
+            win.addEventListener('mousedown', () => bringToFront(win));
+        });
+
+        // Event listeners untuk tombol-tombol utama
+        $('#openAdminBtn').addEventListener('click', () => openWindow($('#adminWindow')));
+        $('#openCmdBtn').addEventListener('click', () => openWindow($('#cmdWindow')));
+        $('#openExplorerBtn').addEventListener('click', () => {
+            openWindow($('#explorerWindow'));
+            renderExplorer(currentExplorerPath); // Muat ulang direktori saat membuka
+        });
+
+        // Event listeners untuk menu Start
+        $('#openAdminFromMenu').addEventListener('click', () => { openWindow($('#adminWindow')); startMenu.classList.remove('active'); });
+        $('#openCmd').addEventListener('click', () => { openWindow($('#cmdWindow')); startMenu.classList.remove('active'); });
+        $('#openExplorer').addEventListener('click', () => { openWindow($('#explorerWindow')); renderExplorer(currentExplorerPath); startMenu.classList.remove('active'); });
+        $('#openMines').addEventListener('click', () => { openWindow($('#minesWindow')); startMenu.classList.remove('active'); });
+        $('#openTetris').addEventListener('click', () => { openWindow($('#tetrisWindow')); startMenu.classList.remove('active'); });
+        $('#openStoreFromMenu').addEventListener('click', () => { openWindow($('#storeWindow')); renderStore(); startMenu.classList.remove('active'); });
+        
+        // --- UI Logic ---
         const loginScreen = $('#login-screen');
         const loginForm = $('#loginForm');
         const loginError = $('#login-error');
         const desktop = $('#desktop');
         const taskbar = $('.taskbar');
-        
+        const tasks = $('#tasks');
+        const shutdownBtn = $('#shutdownBtn');
+        const shutdownScreen = $('#shutdown-screen');
+        const shutdownInput = $('#shutdownCodeInput');
+        const shutdownMsg = $('#shutdown-msg');
+
         loginForm.addEventListener('submit', (e) => {
             e.preventDefault();
             const username = $('#username').value;
             const password = $('#password').value;
-
             if (username === 'admin' && password === '1234') {
                 loggedInUser = username;
                 $('#usernameDisplay').textContent = username;
@@ -642,15 +1083,14 @@ ADMIN_PANEL = r"""
                 taskbar.classList.add('visible');
                 $('#rolePill').textContent = `role: ${username}`;
                 $('#cmdPrompt').textContent = `C:\\Users\\${username}>`;
-                openWindow($('#adminWindow')); 
+                openWindow($('#adminWindow'));
                 log(`[auth] User '${username}' logged in successfully.`);
-                checkForUpdates();
             } else {
                 loginError.textContent = 'Username atau password salah.';
                 setTimeout(() => loginError.textContent = '', 2000);
             }
         });
-        
+
         $('#logoutBtn').addEventListener('click', () => {
             logout();
         });
@@ -668,1117 +1108,997 @@ ADMIN_PANEL = r"""
         }
 
         const clockEl = $('#clock');
-        function updateClock() {
-            const d = new Date();
-            const format = localStorage.getItem('timeFormat') || '24h';
-            let timeString;
-            if (format === '12h') {
-                timeString = d.toLocaleTimeString('en-US', { hour12: true });
-            } else {
-                timeString = d.toLocaleTimeString('en-GB', { hour12: false });
-            }
-            clockEl.textContent = timeString;
+        const uptimeEl = $('#uptime');
+
+        function updateClockAndUptime() {
+            const now = new Date();
+            const timeString = now.toLocaleTimeString('id-ID', { hour12: false });
+            const dateString = now.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric' });
+            clockEl.textContent = `${dateString} | ${timeString}`;
+            
+            // Update uptime
+            const uptimeInSeconds = Math.floor((now - serverStartTime) / 1000);
+            const hours = Math.floor(uptimeInSeconds / 3600);
+            const minutes = Math.floor((uptimeInSeconds % 3600) / 60);
+            const seconds = uptimeInSeconds % 60;
+            const formatTime = (t) => t.toString().padStart(2, '0');
+            uptimeEl.textContent = `${formatTime(hours)}:${formatTime(minutes)}:${formatTime(seconds)}`;
         }
-        setInterval(updateClock, 1000); updateClock();
+
+        setInterval(updateClockAndUptime, 1000);
+        updateClockAndUptime();
 
         const startBtn = $('#startBtn');
         const startMenu = $('#startMenu');
-        startBtn.addEventListener('click', ()=>{ startMenu.classList.toggle('active'); });
-        document.addEventListener('click', (e)=>{ if(!startMenu.contains(e.target) && e.target!==startBtn){ startMenu.classList.remove('active'); } });
-
-        const desktopContextMenu = $('#desktopContextMenu');
-        desktop.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            desktopContextMenu.style.left = e.clientX + 'px';
-            desktopContextMenu.style.top = e.clientY + 'px';
-            desktopContextMenu.classList.add('active');
+        startBtn.addEventListener('click', ()=>{
+            startMenu.classList.toggle('active');
         });
-
-        document.addEventListener('click', () => {
-            desktopContextMenu.classList.remove('active');
-        });
-
-        $('#createTxtFile').addEventListener('click', () => {
-            const userDocs = fileSystem['C:']['Users'][loggedInUser]['Documents'];
-            let newFileName = 'New Text File.txt';
-            let i = 1;
-            while (userDocs[newFileName]) {
-                newFileName = `New Text File (${i}).txt`;
-                i++;
-            }
-            userDocs[newFileName] = { type: 'text', content: 'Konten file baru.' };
-            toast(`File '${newFileName}' dibuat.`);
-            log(`[file-system] new file created: ${newFileName}`);
-            renderExplorer();
-        });
-
-        $('#deleteFile').addEventListener('click', () => {
-            if (selectedFile) {
-                delete currentPath[selectedFile];
-                toast(`File '${selectedFile}' dihapus.`);
-                log(`[file-system] file deleted: ${selectedFile}`);
-                selectedFile = null;
-                renderExplorer();
-            } else {
-                toast('Pilih file dulu!');
+        document.addEventListener('click', (e)=>{
+            if(!startMenu.contains(e.target) && e.target!==startBtn){
+                startMenu.classList.remove('active');
             }
         });
 
-        const tasks = $('#tasks');
-
-        function createTaskButton(winId, title){ const btn = document.createElement('button'); btn.className = 'btn task'; btn.dataset.for = winId; btn.textContent = title; const targetWin = document.getElementById(winId); btn.addEventListener('click', (e) => { e.stopPropagation(); focusWindow(targetWin); }); return btn; }
-
-        function openWindow(win){ 
-            if(!win) return;
-            win.classList.remove('minimized');
-            win.classList.add('active'); 
-            if(!win.style.left || win.style.left.includes('px') === false){
-                win.style.left = Math.max(20, innerWidth/2 - win.offsetWidth/2) + 'px'; 
-            }
-            if(!win.style.top || win.style.top.includes('px') === false){
-                win.style.top = Math.max(20, innerHeight/2 - win.offsetHeight/2 - 40) + 'px'; 
-            }
-            if(!tasks.querySelector('[data-for="'+win.id+'"]')){
-                const title = win.dataset.title || win.querySelector('.title')?.textContent || win.id;
-                const btn = createTaskButton(win.id, title);
-                tasks.appendChild(btn);
-            }
-            bringToFront(win);
-        }
-
-        function closeWindow(win){ 
-            if(!win) return; 
-            win.classList.remove('active');
-            win.classList.add('minimized');
-            const taskBtn = tasks.querySelector(`[data-for="${win.id}"]`);
-            if(taskBtn) taskBtn.remove();
-        }
-
-        function minimizeWindow(win){ 
-            if(!win) return; 
-            win.classList.remove('active'); 
-            win.classList.add('minimized');
-            updateTaskButtonState(win); 
-        }
-
-        function maximizeWindow(win){ 
-            if(!win) return; 
-            if(win.dataset.max === '1'){ 
-                win.style.left = win.dataset.prevLeft || '80px'; 
-                win.style.top = win.dataset.prevTop || '80px'; 
-                win.style.width = win.dataset.prevWidth || '720px'; 
-                win.style.height = win.dataset.prevHeight || 'auto'; 
-                win.dataset.max = '0'; 
-            } else { 
-                win.dataset.prevLeft = win.style.left; 
-                win.dataset.prevTop = win.style.top; 
-                win.dataset.prevWidth = win.style.width; 
-                win.dataset.prevHeight = win.style.height; 
-                win.style.left = '10px'; 
-                win.style.top = '10px'; 
-                win.style.width = (innerWidth - 20) + 'px'; 
-                win.style.height = (innerHeight - 70) + 'px'; 
-                win.dataset.max = '1'; 
-            } 
-            bringToFront(win); 
-            updateTaskButtonState(win); 
-        }
-
-        function bringToFront(win){ 
-            const zList = $$('.window.active, .window.minimized').map(w => { 
-                const z = parseInt(getComputedStyle(w).zIndex, 10); 
-                return isNaN(z) ? 10 : z; 
-            }); 
-            const maxZ = zList.length ? Math.max(...zList) : 10; 
-            win.style.zIndex = maxZ + 1; 
-            
-            $$('.task.active').forEach(btn => btn.classList.remove('active'));
-            const taskBtn = tasks.querySelector(`[data-for="${win.id}"]`);
-            if (taskBtn) taskBtn.classList.add('active');
-        }
-
-        function focusWindow(win){ 
-            if(!win) return; 
-            if(win.classList.contains('active')){
-                minimizeWindow(win); 
-            } else { 
-                openWindow(win); 
-            } 
-        }
-
-        function updateTaskButtonState(win){ 
-            const btn = tasks.querySelector('[data-for="'+win.id+'"]'); 
-            if(!btn) return; 
-            if(win.classList.contains('active')) btn.classList.add('active'); 
-            else btn.classList.remove('active'); 
-        }
-
-        function attachResizeListeners(win) {
-            const handles = $$('.resize-handle', win);
-            handles.forEach(handle => {
-                let isResizing = false;
-                let startX, startY, startWidth, startHeight, startLeft, startTop;
-
-                handle.addEventListener('mousedown', (e) => {
-                    e.stopPropagation();
-                    isResizing = true;
-                    startX = e.clientX;
-                    startY = e.clientY;
-                    startWidth = win.offsetWidth;
-                    startHeight = win.offsetHeight;
-                    startLeft = win.offsetLeft;
-                    startTop = win.offsetTop;
-                    document.body.style.userSelect = 'none';
-                });
-
-                document.addEventListener('mousemove', (e) => {
-                    if (!isResizing) return;
-                    let newWidth = startWidth;
-                    let newHeight = startHeight;
-                    let newLeft = startLeft;
-                    let newTop = startTop;
-
-                    if (handle.classList.contains('right') || handle.classList.contains('top-right') || handle.classList.contains('bottom-right')) {
-                        newWidth = startWidth + (e.clientX - startX);
-                    }
-                    if (handle.classList.contains('bottom') || handle.classList.contains('bottom-left') || handle.classList.contains('bottom-right')) {
-                        newHeight = startHeight + (e.clientY - startY);
-                    }
-                    if (handle.classList.contains('left') || handle.classList.contains('top-left') || handle.classList.contains('bottom-left')) {
-                        newWidth = startWidth - (e.clientX - startX);
-                        newLeft = startLeft + (e.clientX - startX);
-                    }
-                    if (handle.classList.contains('top') || handle.classList.contains('top-left') || handle.classList.contains('top-right')) {
-                        newHeight = startHeight - (e.clientY - startY);
-                        newTop = startTop + (e.clientY - startY);
-                    }
-                    
-                    if (newWidth > win.dataset.minWidth || newWidth > 320) win.style.width = newWidth + 'px';
-                    if (newHeight > win.dataset.minHeight || newHeight > 200) win.style.height = newHeight + 'px';
-                    if (handle.classList.contains('left') || handle.classList.contains('top-left') || handle.classList.contains('bottom-left')) win.style.left = newLeft + 'px';
-                    if (handle.classList.contains('top') || handle.classList.contains('top-left') || handle.classList.contains('top-right')) win.style.top = newTop + 'px';
-                });
-
-                document.addEventListener('mouseup', () => {
-                    isResizing = false;
-                    document.body.style.userSelect = '';
+        const userStore = [];
+        function renderUsers() {
+            const el = $('#userList');
+            if(!el) return;
+            el.innerHTML = '';
+            userStore.forEach((u,i)=>{
+                const row = document.createElement('div');
+                row.className = 'row';
+                row.innerHTML = `<div>@${u}</div><button class="btn small" data-del="${i}">Hapus</button>`;
+                el.appendChild(row);
+            });
+            el.querySelectorAll('[data-del]').forEach(btn=>{
+                btn.addEventListener('click', ()=>{
+                    const idx = +btn.dataset.del;
+                    userStore.splice(idx,1);
+                    renderUsers();
+                    log(`[users] delete ${userStore[idx] || 'user'}`);
                 });
             });
         }
         
-        function attachWindowEvents(win) {
-            const bar = win.querySelector('[data-drag]');
-            if (bar) {
-                let sx, sy, sl, st, dragging = false;
-                bar.addEventListener('mousedown', (e) => {
-                    if (e.target.closest('.actions')) return;
-                    dragging = true;
-                    bringToFront(win);
-                    sx = e.clientX;
-                    sy = e.clientY;
-                    sl = parseInt(win.style.left || '80', 10);
-                    st = parseInt(win.style.top || '80', 10);
-                    document.body.style.userSelect = 'none';
-                });
-                document.addEventListener('mousemove', (e) => {
-                    if (!dragging) return;
-                    const nl = sl + (e.clientX - sx);
-                    const nt = st + (e.clientY - sy);
-                    win.style.left = Math.min(innerWidth-80, Math.max(-win.offsetWidth+80, nl)) + 'px';
-                    win.style.top = Math.min(innerHeight-120, Math.max(0, nt)) + 'px';
-                });
-                document.addEventListener('mouseup', () => {
-                    dragging = false;
-                    document.body.style.userSelect = '';
-                });
-            }
-
-            const closeBtn = win.querySelector('[data-close]');
-            if (closeBtn) closeBtn.addEventListener('click', () => { closeWindow(win); toast(win.dataset.title || 'Window closed'); });
-            const minBtn = win.querySelector('[data-minimize]');
-            if (minBtn) minBtn.addEventListener('click', () => { minimizeWindow(win); });
-            const maxBtn = win.querySelector('[data-maximize]');
-            if (maxBtn) maxBtn.addEventListener('click', () => { maximizeWindow(win); });
-            win.addEventListener('mousedown', () => bringToFront(win));
-            attachResizeListeners(win);
-        }
+        $('#addUser').addEventListener('click', ()=>{
+            const v = $('#newUser').value.trim();
+            if(!v) return;
+            if(userStore.includes(v)) return toast('User sudah ada');
+            userStore.push(v);
+            $('#newUser').value='';
+            renderUsers();
+            log(`[users] add ${v}`);
+        });
         
-        $$('.window').forEach(attachWindowEvents);
-
-        $('#openAdminBtn').addEventListener('click', ()=> openWindow($('#adminWindow')));
-        $('#openAdminFromMenu').addEventListener('click', ()=> { openWindow($('#adminWindow')); startMenu.classList.remove('active'); });
-        $('#openCmd').addEventListener('click', ()=> { openWindow($('#cmdWindow')); startMenu.classList.remove('active'); $('#cmdInput').focus(); });
-        $('#openExplorer').addEventListener('click', ()=> { openWindow($('#explorerWindow')); startMenu.classList.remove('active'); renderExplorer(); });
-        $('#openMines').addEventListener('click', ()=> { openWindow($('#minesWindow')); startMenu.classList.remove('active'); });
-        $('#openTetris').addEventListener('click', ()=> { openWindow($('#tetrisWindow')); startMenu.classList.remove('active'); });
-
-        $$('.tab', adminWindow).forEach(tab => { tab.addEventListener('click', ()=>{ $$('.tab', adminWindow).forEach(t=>t.classList.remove('active')); tab.classList.add('active'); $$('.tab-panel', adminWindow).forEach(p=>p.classList.remove('active')); $('#tab-'+tab.dataset.tab).classList.add('active'); }); });
-
-        const startTime = Date.now();
-        function fmtUptime(ms){ const s = Math.floor(ms/1000); const h = Math.floor(s/3600); const m = Math.floor((s%3600)/60); const ss = s%60; const pad = (n)=> String(n).padStart(2,'0'); return `${pad(h)}:${pad(m)}:${pad(ss)}`; }
-        setInterval(()=>{ $('#uptime').textContent = fmtUptime(Date.now()-startTime); const cpu = (5 + Math.floor(Math.random()*20)); const ram = (30 + Math.floor(Math.random()*25)); $('#cpu').textContent = cpu + '%'; $('#ram').textContent = ram + '%'; }, 1000);
-
-        function log(line){ const ta = $('#logs'); if(!ta) return; ta.value += line + "\n"; ta.scrollTop = ta.scrollHeight; }
-
-        $('#btnRestart').addEventListener('click', ()=>{ log('[action] restart service'); toast('Service di-restart (simulasi)'); });
-        $('#btnClearCache').addEventListener('click', ()=>{ log('[action] clear cache'); toast('Cache dibersihkan'); });
-
-        const userStore = [];
-        function renderUsers(){ const el = $('#userList'); if(!el) return; if(userStore.length===0){ el.textContent = '(kosong)'; return; } el.innerHTML = ''; userStore.forEach((u,i)=>{ const row = document.createElement('div'); row.className = 'row'; row.innerHTML = `<div>@${u}</div><button class="btn small" data-del="${i}">Hapus</button>`; el.appendChild(row); }); el.querySelectorAll('[data-del]').forEach(btn=>{ btn.addEventListener('click', ()=>{ const idx = +btn.dataset.del; userStore.splice(idx,1); renderUsers(); log(`[users] delete ${userStore[idx] || 'user'}`); }); }); }
-        $('#addUser').addEventListener('click', ()=>{ const v = $('#newUser').value.trim(); if(!v) return; if(userStore.includes(v)) return toast('User sudah ada'); userStore.push(v); $('#newUser').value=''; renderUsers(); log(`[users] add ${v}`); });
-        $('#clearUsers').addEventListener('click', ()=>{ userStore.length = 0; renderUsers(); log('[users] cleared'); });
+        $('#clearUsers').addEventListener('click', ()=>{
+            userStore.length = 0;
+            renderUsers();
+            log('[users] cleared');
+        });
 
         function applyTheme(theme){
-            if (theme === 'light') {
+             if (theme === 'light') {
                 document.body.classList.add('light-theme');
                 document.body.style.background = `var(--bg)`;
             } else if (theme === 'amoled') {
                 document.body.classList.remove('light-theme');
                 document.body.style.background = '#000';
-            } else { 
+            } else {
                 document.body.classList.remove('light-theme');
                 document.body.style.background = `radial-gradient(1200px 700px at 70% -10%, #223 0%, #111 55%, #0a0c10 100%), var(--bg)`;
             }
         }
+        
         function applyWallpaper(wallpaper) {
             desktop.style.backgroundImage = wallpapers[wallpaper] || '';
         }
 
-        $('#saveSettings').addEventListener('click', ()=>{ 
+        $('#saveSettings').addEventListener('click', ()=>{
             const theme = $('#themeSelect').value;
             const wallpaper = $('#wallpaperSelect').value;
-            const timeFormat = $('#timeFormatSelect').value;
-
             applyTheme(theme);
             applyWallpaper(wallpaper);
-            updateClock();
-
-            localStorage.setItem('theme', theme);
-            localStorage.setItem('wallpaper', wallpaper);
-            localStorage.setItem('timeFormat', timeFormat);
-            
-            toast('Pengaturan disimpan'); 
-            log(`[settings] saved {theme:${theme}, wallpaper:${wallpaper}, timeFormat:${timeFormat}}`); 
+            toast('Pengaturan disimpan');
+            log(`[settings] saved {theme:${theme}, wallpaper:${wallpaper}}`);
         });
-
-        $('#resetSettings').addEventListener('click', ()=>{ 
-            $('#siteName').value = 'My Awesome App'; 
-            $('#adminPass').value = ''; 
+        
+        $('#resetSettings').addEventListener('click', ()=>{
+            $('#siteName').value = 'My Awesome App';
+            $('#adminPass').value = '';
             $('#themeSelect').value = 'dark';
             $('#wallpaperSelect').value = 'default';
-            $('#timeFormatSelect').value = '24h';
             applyTheme('dark');
             applyWallpaper('default');
-            updateClock();
-            localStorage.clear();
-            toast('Pengaturan direset'); 
-            log('[settings] reset'); 
+            toast('Pengaturan direset');
+            log('[settings] reset');
         });
 
-        (function loadSettings() {
-            const savedTheme = localStorage.getItem('theme') || 'dark';
-            const savedWallpaper = localStorage.getItem('wallpaper') || 'default';
-            const savedTimeFormat = localStorage.getItem('timeFormat') || '24h';
+        // --- Fungsi Log & Toast ---
+        function log(message){
+            const logs = $('#logs');
+            if(logs) {
+                logs.value += `[${new Date().toLocaleTimeString()}] ${message}\n`;
+                logs.scrollTop = logs.scrollHeight;
+            }
+        }
+        function toast(message){
+            const t = $('.toast');
+            t.textContent = message;
+            t.classList.add('show');
+            setTimeout(()=>t.classList.remove('show'), 2500);
+        }
 
-            $('#themeSelect').value = savedTheme;
-            $('#wallpaperSelect').value = savedWallpaper;
-            $('#timeFormatSelect').value = savedTimeFormat;
-            
-            applyTheme(savedTheme);
-            applyWallpaper(savedWallpaper);
-            updateClock();
-        })();
-
-        $('#aboutBtn').addEventListener('click', ()=>{ startMenu.classList.remove('active'); toast('Taskbar + Admin Panel demo'); });
-        
+        // --- CMD FUNGSI BARU ---
         const cmdInput = $('#cmdInput');
         const cmdOutput = $('#cmdOutput');
-        const cmdContent = $('#cmdContent');
-        const cmdPrompt = $('#cmdPrompt');
-
-        cmdContent.addEventListener('click', () => cmdInput.focus());
-        cmdInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Enter') {
-                const command = cmdInput.value.trim();
-                cmdInput.value = '';
-                
-                if (command) {
-                    appendCmdOutput(`${cmdPrompt.textContent}${command}\n`);
-                    executeCommand(command);
+        
+        if (cmdInput) {
+            cmdInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    const cmd = cmdInput.value.trim();
+                    appendCmdOutput(`\n${$('#cmdPrompt').textContent}${cmd}\n`);
+                    cmdInput.value = '';
+                    handleCmd(cmd.toLowerCase());
                 }
-            }
-        });
+            });
+        }
 
         function appendCmdOutput(text) {
             cmdOutput.textContent += text;
-            cmdContent.scrollTop = cmdContent.scrollHeight;
+            cmdOutput.scrollTop = cmdOutput.scrollHeight;
         }
 
-        function executeCommand(command) {
-            const parts = command.split(' ');
-            const cmd = parts[0].toLowerCase();
-            const args = parts.slice(1);
-            let output = '';
-
-            switch (cmd) {
-                case 'help':
-                    output = 'Perintah yang tersedia:\n' +
-                             '  help        - Menampilkan bantuan ini\n' +
-                             '  echo [teks] - Menampilkan teks\n' +
-                             '  date        - Menampilkan tanggal hari ini\n' +
-                             '  time        - Menampilkan waktu saat ini\n' +
-                             '  cls         - Membersihkan layar\n' +
-                             '  user        - Menampilkan user yang login\n' +
-                             '  exit        - Menutup Command Prompt\n';
-                    break;
-                case 'echo':
-                    output = args.join(' ') + '\n';
-                    break;
-                case 'date':
-                    output = new Date().toLocaleDateString('id-ID', { dateStyle: 'full' }) + '\n';
-                    break;
-                case 'time':
-                    output = new Date().toLocaleTimeString('id-ID') + '\n';
-                    break;
-                case 'cls':
+        async function handleCmd(cmd) {
+            let output;
+            try {
+                if (cmd === 'date' || cmd === 'time' || cmd === 'datetime') {
+                    const response = await fetch(`${ADMIN_API_CMD}?cmd=${cmd}`);
+                    const data = await response.text();
+                    output = data;
+                } else if (cmd === 'help') {
+                    output = 'Daftar perintah:\n- date/time/datetime: Menampilkan tanggal dan waktu.\n- help: Menampilkan daftar perintah.\n- cls: Membersihkan layar.\n- user: Menampilkan pengguna saat ini.\n- exit: Menutup jendela CMD.\n';
+                } else if (cmd === 'cls') {
                     cmdOutput.textContent = '';
                     return;
-                case 'user':
+                } else if (cmd === 'user') {
                     output = `User saat ini: ${loggedInUser}\n`;
-                    break;
-                case 'exit':
+                } else if (cmd === 'exit') {
                     closeWindow($('#cmdWindow'));
                     return;
-                default:
+                } else {
                     output = `'${cmd}' tidak dikenali sebagai perintah.\nKetik 'help' untuk daftar perintah.\n`;
+                }
+            } catch (e) {
+                output = `Error: Gagal menghubungi server.\n`;
+                log(`[cmd] API error: ${e.message}`);
             }
             appendCmdOutput(output);
         }
+        
+        // --- FILE EXPLORER & DISPLAYER FUNGSI BARU ---
+        async function getFiles(path = '') {
+            const response = await fetch(`${ADMIN_API_FILES}?path=${encodeURIComponent(path)}`);
+            if (!response.ok) {
+                throw new Error('Gagal memuat data file.');
+            }
+            return await response.json();
+        }
 
-        function renderExplorer() {
+        async function renderExplorer(path = '') {
             const folderList = $('#folderList');
             const filePreview = $('#filePreview');
             folderList.innerHTML = '';
-            filePreview.innerHTML = 'Pilih file untuk melihat isinya.';
-            selectedFile = null;
-
-            // Navigasi ke root direktori
-            const rootEl = document.createElement('div');
-            rootEl.className = 'file-item folder';
-            rootEl.innerHTML = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h4l2 3h10a2 2 0 012 2z"/></svg><span>C:</span>`;
-            rootEl.addEventListener('click', () => {
-                currentPath = fileSystem['C:'];
-                renderExplorer();
-            });
-            folderList.appendChild(rootEl);
-
-            const path = [];
-            let tempPath = fileSystem['C:'];
-            for (const key of Object.keys(currentPath)) {
-                if (tempPath === currentPath) {
-                    break;
+            filePreview.textContent = 'Pilih file untuk melihat isinya.';
+            currentExplorerPath = path;
+        
+            try {
+                const data = await getFiles(path);
+        
+                if (data.status === 'error') {
+                    folderList.textContent = data.message;
+                    log(`[explorer] Error: ${data.message}`);
+                    return;
                 }
-                path.push(key);
-                tempPath = tempPath[key];
-            }
+        
+                if (path !== '') {
+                    const backEl = document.createElement('div');
+                    backEl.className = 'file-item folder';
+                    backEl.innerHTML = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg><span>...</span>`;
+                    backEl.addEventListener('click', () => {
+                        const parentPath = path.substring(0, path.lastIndexOf('/'));
+                        renderExplorer(parentPath);
+                    });
+                    folderList.appendChild(backEl);
+                }
+        
+                data.files.forEach(item => {
+                    const itemEl = document.createElement('div');
+                    itemEl.className = `file-item ${item.is_dir ? 'folder' : 'file'}`;
+                    const icon = item.is_dir 
+                        ? `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h4l2 3h10a2 2 0 012 2z"/></svg>`
+                        : `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>`;
+                    itemEl.innerHTML = `${icon}<span>${item.name}</span>`;
+                    itemEl.dataset.filename = item.name;
+                    itemEl.dataset.isDir = item.is_dir;
 
-            for (const item in currentPath) {
-                const itemData = currentPath[item];
-                const isFolder = typeof itemData === 'object' && !itemData.type;
-                const type = isFolder ? 'folder' : 'file';
-                const icon = isFolder ?
-                    `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h4l2 3h10a2 2 0 012 2z"/></svg>` :
-                    `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>`;
-
-                const fileEl = document.createElement('div');
-                fileEl.className = `file-item ${type}`;
-                fileEl.innerHTML = `${icon}<span>${item}</span>`;
-                fileEl.addEventListener('click', () => {
-                    selectedFile = isFolder ? null : item;
-                    if (isFolder) {
-                        currentPath = itemData;
-                        renderExplorer();
+                    if (item.is_dir) {
+                        itemEl.addEventListener('click', () => {
+                            const newPath = path ? `${path}/${item.name}` : item.name;
+                            renderExplorer(newPath);
+                        });
                     } else {
-                        openFile(itemData);
+                        itemEl.addEventListener('click', () => {
+                            previewFile(item.name, path);
+                        });
+                    }
+                    folderList.appendChild(itemEl);
+                });
+            } catch (e) {
+                folderList.textContent = `Error: ${e.message}`;
+            }
+        }
+        
+        async function previewFile(filename, path) {
+            const filePreview = $('#filePreview');
+            filePreview.textContent = 'Memuat konten file...';
+            try {
+                const fullPath = path ? `${path}/${filename}` : filename;
+                const response = await fetch(`${ADMIN_API_PREVIEW}?path=${encodeURIComponent(fullPath)}`);
+                if (!response.ok) {
+                    throw new Error('Gagal memuat konten file.');
+                }
+                const content = await response.text();
+                filePreview.textContent = content;
+            } catch (e) {
+                filePreview.textContent = `Error: ${e.message}`;
+            }
+        }
+        
+        async function renderDisplayerFiles() {
+            const fileListEl = $('#mediaFileList');
+            fileListEl.innerHTML = '';
+            try {
+                const data = await getFiles();
+                if (data.status === 'error') {
+                    fileListEl.textContent = data.message;
+                    return;
+                }
+                data.files.forEach(file => {
+                    const ext = file.name.split('.').pop().toLowerCase();
+                    if (['mp3', 'mp4', 'png', 'jpg', 'jpeg'].includes(ext)) {
+                        const fileEl = document.createElement('div');
+                        fileEl.className = 'btn small';
+                        fileEl.textContent = file.name;
+                        fileEl.addEventListener('click', () => {
+                            displayMedia(file.name);
+                        });
+                        fileListEl.appendChild(fileEl);
                     }
                 });
-                folderList.appendChild(fileEl);
+                if (fileListEl.children.length === 0) {
+                    fileListEl.innerHTML = '<p class="muted">Tidak ada file media di direktori root.</p>';
+                }
+            } catch (e) {
+                fileListEl.innerHTML = `<p class="muted">Gagal memuat file: ${e.message}</p>`;
             }
         }
 
-        function openFile(fileData) {
-            const previewEl = $('#filePreview');
-            previewEl.innerHTML = '';
-            
-            if (fileData.type === 'text') {
-                const pre = document.createElement('pre');
-                pre.textContent = fileData.content;
-                previewEl.appendChild(pre);
-            } else if (fileData.type === 'image') {
+        function displayMedia(filename) {
+            const viewer = $('#mediaViewer');
+            const ext = filename.split('.').pop().toLowerCase();
+            const mediaUrl = `${ADMIN_API_MEDIA}?filename=${encodeURIComponent(filename)}`;
+            viewer.innerHTML = '';
+
+            if (['mp3'].includes(ext)) {
+                const audio = document.createElement('audio');
+                audio.src = mediaUrl;
+                audio.controls = true;
+                audio.autoplay = true;
+                audio.style.width = '100%';
+                viewer.appendChild(audio);
+            } else if (['mp4'].includes(ext)) {
+                const video = document.createElement('video');
+                video.src = mediaUrl;
+                video.controls = true;
+                video.autoplay = true;
+                video.style.maxWidth = '100%';
+                video.style.maxHeight = '100%';
+                video.style.objectFit = 'contain';
+                viewer.appendChild(video);
+            } else if (['png', 'jpg', 'jpeg'].includes(ext)) {
                 const img = document.createElement('img');
-                img.src = fileData.content;
+                img.src = mediaUrl;
                 img.style.maxWidth = '100%';
-                img.style.display = 'block';
-                previewEl.appendChild(img);
+                img.style.maxHeight = '100%';
+                img.style.objectFit = 'contain';
+                viewer.appendChild(img);
             } else {
-                previewEl.textContent = 'Jenis file tidak didukung.';
+                viewer.innerHTML = '<p class="muted">Format file tidak didukung.</p>';
+            }
+            log(`[displayer] Membuka file: ${filename}`);
+            openWindow($('#displayerWindow'));
+        }
+
+        // --- NEW: Explorer Context Menu Logic ---
+        const explorerContextMenu = $('#explorerContextMenu');
+        let selectedFileElement = null;
+
+        document.addEventListener('contextmenu', (e) => {
+            const fileItem = e.target.closest('.file-item');
+            if (fileItem && fileItem.closest('#explorerWindow')) {
+                e.preventDefault();
+                selectedFileElement = fileItem;
+                const filename = fileItem.dataset.filename;
+                const isDir = fileItem.dataset.isDir === 'true';
+
+                // Hanya tampilkan menu jika itu adalah file media yang dapat dibuka
+                const ext = filename.split('.').pop().toLowerCase();
+                const isMediaFile = ['mp3', 'mp4', 'png', 'jpg', 'jpeg'].includes(ext);
+
+                if (isMediaFile) {
+                    explorerContextMenu.style.top = `${e.clientY}px`;
+                    explorerContextMenu.style.left = `${e.clientX}px`;
+                    explorerContextMenu.classList.add('active');
+                } else {
+                    explorerContextMenu.classList.remove('active');
+                }
+            } else {
+                explorerContextMenu.classList.remove('active');
+            }
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!explorerContextMenu.contains(e.target)) {
+                explorerContextMenu.classList.remove('active');
+            }
+        });
+
+        explorerContextMenu.querySelector('[data-action="open-with-displayer"]').addEventListener('click', () => {
+            if (selectedFileElement) {
+                const filename = selectedFileElement.dataset.filename;
+                displayMedia(filename);
+                explorerContextMenu.classList.remove('active');
+            }
+        });
+
+        // --- MINI GAME LOGIC ---
+        // Minesweeper
+        const minesBoard = $('#minesBoard');
+        const minesStatus = $('#minesStatus');
+        const restartMinesBtn = $('#restartMines');
+        const BOARD_SIZE = 9;
+        const NUM_MINES = 10;
+        let board;
+        let revealedCells;
+        let isGameOver;
+
+        function createMinesBoard() {
+            board = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(0));
+            revealedCells = Array.from({ length: BOARD_SIZE }, () => Array(BOARD_SIZE).fill(false));
+            isGameOver = false;
+            
+            // Place mines
+            let minesPlaced = 0;
+            while (minesPlaced < NUM_MINES) {
+                const row = Math.floor(Math.random() * BOARD_SIZE);
+                const col = Math.floor(Math.random() * BOARD_SIZE);
+                if (board[row][col] !== 'mine') {
+                    board[row][col] = 'mine';
+                    minesPlaced++;
+                }
+            }
+            // Calculate numbers
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    if (board[r][c] === 'mine') continue;
+                    let count = 0;
+                    for (let dr = -1; dr <= 1; dr++) {
+                        for (let dc = -1; dc <= 1; dc++) {
+                            const nr = r + dr;
+                            const nc = c + dc;
+                            if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === 'mine') {
+                                count++;
+                            }
+                        }
+                    }
+                    board[r][c] = count;
+                }
             }
         }
 
-        // === LOGIKA SHUTDOWN ===
-        const shutdownBtn = $('#shutdownBtn');
-        const shutdownScreen = $('#shutdown-screen');
-        const shutdownCodeInput = $('#shutdownCodeInput');
-        const shutdownCountdown = $('#shutdownCountdown');
+        function renderMinesBoard() {
+            minesBoard.innerHTML = '';
+            minesBoard.style.gridTemplateColumns = `repeat(${BOARD_SIZE}, 1fr)`;
+            for (let r = 0; r < BOARD_SIZE; r++) {
+                for (let c = 0; c < BOARD_SIZE; c++) {
+                    const cell = document.createElement('div');
+                    cell.className = 'mines-cell';
+                    cell.style.width = cell.style.height = '36px';
+                    cell.style.display = 'flex';
+                    cell.style.alignItems = 'center';
+                    cell.style.justifyContent = 'center';
+                    cell.style.backgroundColor = '#4a5568';
+                    cell.style.cursor = 'pointer';
+                    cell.dataset.row = r;
+                    cell.dataset.col = c;
+                    cell.addEventListener('click', () => revealCell(r, c));
+                    minesBoard.appendChild(cell);
+                }
+            }
+        }
+
+        function revealCell(row, col) {
+            if (isGameOver || revealedCells[row][col]) return;
+            const cell = minesBoard.querySelector(`[data-row="${row}"][data-col="${col}"]`);
+            if (board[row][col] === 'mine') {
+                cell.style.backgroundColor = 'red';
+                cell.textContent = '💣';
+                minesStatus.textContent = 'Game Over!';
+                isGameOver = true;
+            } else {
+                revealedCells[row][col] = true;
+                cell.style.backgroundColor = '#9ca3af';
+                if (board[row][col] > 0) {
+                    cell.textContent = board[row][col];
+                }
+            }
+        }
+        
+        restartMinesBtn.addEventListener('click', () => {
+            minesStatus.textContent = 'Ready';
+            createMinesBoard();
+            renderMinesBoard();
+        });
+
+        // Tetris
+        const tetrisCanvas = $('#tetrisCanvas');
+        const tetrisCtx = tetrisCanvas.getContext('2d');
+        const tetrisStatus = $('#tetrisStatus');
+        const restartTetrisBtn = $('#restartTetris');
+        const BLOCK_SIZE = 20;
+        const COLS = 10;
+        const ROWS = 20;
+        let grid;
+        let currentPiece;
+        let nextPiece;
+        let score;
+        let gameOver;
+        let dropCounter;
+        let lastTime;
+
+        function newGrid() {
+            return Array.from({ length: ROWS }, () => Array(COLS).fill(0));
+        }
+
+        function newPiece() {
+            const pieces = [
+                [[1, 1, 1, 1]], // I
+                [[1, 1], [1, 1]], // O
+                [[0, 1, 0], [1, 1, 1]], // T
+                [[1, 1, 0], [0, 1, 1]], // S
+                [[0, 1, 1], [1, 1, 0]], // Z
+                [[1, 0, 0], [1, 1, 1]], // J
+                [[0, 0, 1], [1, 1, 1]], // L
+            ];
+            const type = Math.floor(Math.random() * pieces.length);
+            return {
+                shape: pieces[type],
+                x: Math.floor(COLS / 2) - Math.floor(pieces[type][0].length / 2),
+                y: 0
+            };
+        }
+
+        function drawBlock(x, y, color) {
+            tetrisCtx.fillStyle = color;
+            tetrisCtx.fillRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+            tetrisCtx.strokeStyle = 'black';
+            tetrisCtx.strokeRect(x * BLOCK_SIZE, y * BLOCK_SIZE, BLOCK_SIZE, BLOCK_SIZE);
+        }
+
+        function draw() {
+            tetrisCtx.clearRect(0, 0, tetrisCanvas.width, tetrisCanvas.height);
+            // Draw grid
+            for (let r = 0; r < ROWS; r++) {
+                for (let c = 0; c < COLS; c++) {
+                    if (grid[r][c]) {
+                        drawBlock(c, r, 'white');
+                    }
+                }
+            }
+            // Draw current piece
+            currentPiece.shape.forEach((row, r) => {
+                row.forEach((value, c) => {
+                    if (value) {
+                        drawBlock(currentPiece.x + c, currentPiece.y + r, 'lightblue');
+                    }
+                });
+            });
+        }
+        
+        function collides(piece, newX, newY) {
+            for (let r = 0; r < piece.shape.length; r++) {
+                for (let c = 0; c < piece.shape[r].length; c++) {
+                    if (piece.shape[r][c] &&
+                        (grid[newY + r] && grid[newY + r][newX + c]) !== 0) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        function merge() {
+            currentPiece.shape.forEach((row, r) => {
+                row.forEach((value, c) => {
+                    if (value) {
+                        grid[currentPiece.y + r][currentPiece.x + c] = 1;
+                    }
+                });
+            });
+        }
+
+        function clearLines() {
+            let linesCleared = 0;
+            for (let r = ROWS - 1; r >= 0; r--) {
+                if (grid[r].every(value => value === 1)) {
+                    grid.splice(r, 1);
+                    grid.unshift(Array(COLS).fill(0));
+                    linesCleared++;
+                }
+            }
+            score += linesCleared;
+        }
+
+        function gameLoop(time = 0) {
+            if (gameOver) return;
+            const deltaTime = time - lastTime;
+            lastTime = time;
+            dropCounter += deltaTime;
+            if (dropCounter > 1000) {
+                dropPiece();
+            }
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function dropPiece() {
+            if (collides(currentPiece, currentPiece.x, currentPiece.y + 1)) {
+                merge();
+                clearLines();
+                currentPiece = nextPiece;
+                nextPiece = newPiece();
+                if (collides(currentPiece, currentPiece.x, currentPiece.y)) {
+                    gameOver = true;
+                    tetrisStatus.textContent = 'Game Over! Score: ' + score;
+                }
+            } else {
+                currentPiece.y++;
+            }
+            dropCounter = 0;
+        }
+
+        function rotatePiece() {
+            const shape = currentPiece.shape;
+            const newShape = shape[0].map((_, colIndex) => shape.map(row => row[colIndex]).reverse());
+            currentPiece.shape = newShape;
+            // Prevent rotation into walls
+            if (collides(currentPiece, currentPiece.x, currentPiece.y)) {
+                currentPiece.shape = shape; // Revert
+            }
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (gameOver) return;
+            if (e.key === 'ArrowLeft') {
+                if (!collides(currentPiece, currentPiece.x - 1, currentPiece.y)) {
+                    currentPiece.x--;
+                }
+            } else if (e.key === 'ArrowRight') {
+                if (!collides(currentPiece, currentPiece.x + 1, currentPiece.y)) {
+                    currentPiece.x++;
+                }
+            } else if (e.key === 'ArrowDown') {
+                dropPiece();
+            } else if (e.key === 'ArrowUp') {
+                rotatePiece();
+            }
+        });
+
+        function resetTetris() {
+            grid = newGrid();
+            currentPiece = newPiece();
+            nextPiece = newPiece();
+            score = 0;
+            gameOver = false;
+            dropCounter = 0;
+            lastTime = 0;
+            tetrisStatus.textContent = 'Ready';
+            gameLoop();
+        }
+
+        restartTetrisBtn.addEventListener('click', resetTetris);
+
+        // Client-side Shutdown Logic
         let shutdownCode = null;
-
-        shutdownBtn.addEventListener('click', () => {
-            startMenu.classList.remove('active');
-            shutdownScreen.classList.add('active');
-            
-            // Tutup semua jendela
-            $$('.window.active').forEach(win => closeWindow(win));
-            
-            // Buat kode acak untuk shutdown
-            shutdownCode = Math.floor(1000 + Math.random() * 9000).toString();
-            log(`[system] SHUTDOWN_REQUEST: Masukkan kode ${shutdownCode} untuk otentikasi.`);
-            
-            shutdownCodeInput.value = '';
-            shutdownCodeInput.focus();
-        });
-
-        shutdownCodeInput.addEventListener('input', () => {
-            if (shutdownCodeInput.value === shutdownCode) {
-                shutdownCodeInput.disabled = true;
-                startCountdown(5);
-            }
-        });
-
-        function startCountdown(count) {
-            const words = ['Tunggu', 'Satu', 'Dua', 'Tiga', 'Empat', 'Lima'];
-            const countdownInterval = setInterval(() => {
-                let displayValue = count;
-                let colorClass = '';
-
-                if (count <= 3) {
-                    displayValue = words[count];
-                    if (count === 3) colorClass = 'green';
-                    else if (count === 2) colorClass = 'yellow';
-                    else if (count === 1) colorClass = 'red';
-                }
-
-                shutdownCountdown.textContent = displayValue;
-                shutdownCountdown.className = 'countdown-text ' + colorClass;
-
-                if (count <= 0) {
-                    clearInterval(countdownInterval);
-                    shutdownCountdown.textContent = 'Goodbye Forever';
-                    shutdownCountdown.classList.add('final-message');
-                    setTimeout(() => {
-                        shutdownScreen.style.display = 'none';
-                        document.body.innerHTML = '<h1 style="color:white; text-align:center; padding-top: 100px;">System Offline</h1>';
-                    }, 2000);
-                }
-                count--;
-            }, 1000);
-        }
-
-        // === LOGIKA SIMULASI UPDATE ===
-        function checkForUpdates() {
-            const updateInfoSection = $('#update-info-section');
-            const latestVersion = '1.0.1'; // Versi terbaru yang disimulasikan
-            
-            // Logika untuk membandingkan versi
-            const isUpdateAvailable = latestVersion > CURRENT_VERSION;
-
-            updateInfoSection.innerHTML = ''; // Bersihkan konten sebelumnya
-
-            if (isUpdateAvailable) {
-                const updateMessage = document.createElement('div');
-                updateMessage.className = 'update-available';
-                updateMessage.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg><span>Pembaruan v${latestVersion} tersedia!</span>`;
-                
-                const updateButton = document.createElement('a');
-                updateButton.href = 'https://github.com/Files2012/MISE/blob/main/OS/MIOS.html'; // Ganti dengan URL repo Anda
-                updateButton.target = '_blank';
-                updateButton.className = 'btn small';
-                updateButton.textContent = 'Unduh';
-                
-                updateInfoSection.appendChild(updateMessage);
-                updateInfoSection.appendChild(updateButton);
-                
-                log('[system] Update available: ' + latestVersion);
+        shutdownBtn.addEventListener('click', async () => {
+            const response = await fetch('/api/shutdown', {method: 'POST'});
+            const data = await response.json();
+            if (data.status === 'success') {
+                shutdownScreen.classList.add('active');
+                shutdownCode = data.code;
+                console.log('Shutdown code:', data.code);
             } else {
-                updateInfoSection.innerHTML = '<span class="muted">Anda menggunakan versi terbaru.</span>';
-                log('[system] No updates found.');
+                toast(data.message);
+            }
+        });
+
+        shutdownInput.addEventListener('input', () => {
+            if (shutdownInput.value === shutdownCode) {
+                shutdownMsg.textContent = 'Kode benar! Server sedang dimatikan...';
+                shutdownMsg.style.color = 'green';
+                setTimeout(() => {
+                    shutdownScreen.innerHTML = '<h2 class="final-message">Server Dimatikan</h2>';
+                }, 2000);
+            } else {
+                shutdownMsg.textContent = 'Kode salah. Silakan coba lagi.';
+                shutdownMsg.style.color = 'red';
+            }
+        });
+
+        // --- NEW: Clock App Logic ---
+        const clockCanvas = $('#analogClockCanvas');
+        const clockCtx = clockCanvas.getContext('2d');
+        const timerDisplay = $('#timerDisplay');
+        const timerStartBtn = $('#timerStart');
+        const timerPauseBtn = $('#timerPause');
+        const timerResetBtn = $('#timerReset');
+        const timerInput = $('#timerInput');
+
+        let timerInterval;
+        let timeLeft = 0;
+
+        function drawClock() {
+            const now = new Date();
+            const hours = now.getHours();
+            const minutes = now.getMinutes();
+            const seconds = now.getSeconds();
+
+            const radius = clockCanvas.width / 2;
+            clockCtx.clearRect(0, 0, clockCanvas.width, clockCanvas.height);
+            clockCtx.translate(radius, radius);
+
+            // Circle
+            clockCtx.beginPath();
+            clockCtx.arc(0, 0, radius * 0.9, 0, 2 * Math.PI);
+            clockCtx.fillStyle = 'rgba(255,255,255,.05)';
+            clockCtx.fill();
+            clockCtx.strokeStyle = 'rgba(255,255,255,.2)';
+            clockCtx.lineWidth = 4;
+            clockCtx.stroke();
+
+            // Hands
+            function drawHand(length, width, angle, color) {
+                clockCtx.beginPath();
+                clockCtx.moveTo(0, 0);
+                clockCtx.rotate(angle);
+                clockCtx.lineTo(0, -length);
+                clockCtx.strokeStyle = color;
+                clockCtx.lineWidth = width;
+                clockCtx.lineCap = 'round';
+                clockCtx.stroke();
+                clockCtx.rotate(-angle);
+            }
+
+            // Seconds Hand
+            const secAngle = (seconds / 60) * 2 * Math.PI - Math.PI / 2;
+            drawHand(radius * 0.8, 2, secAngle, 'var(--accent)');
+
+            // Minutes Hand
+            const minAngle = (minutes / 60) * 2 * Math.PI - Math.PI / 2;
+            drawHand(radius * 0.7, 4, minAngle, 'var(--text)');
+
+            // Hours Hand
+            const hourAngle = ((hours % 12) / 12) * 2 * Math.PI - Math.PI / 2 + (minutes / 60) * (2 * Math.PI / 12);
+            drawHand(radius * 0.5, 6, hourAngle, 'var(--text)');
+
+            // Reset translation
+            clockCtx.translate(-radius, -radius);
+        }
+
+        function updateTimerDisplay() {
+            const minutes = Math.floor(timeLeft / 60);
+            const seconds = timeLeft % 60;
+            const formatTime = (t) => t.toString().padStart(2, '0');
+            timerDisplay.textContent = `${formatTime(minutes)}:${formatTime(seconds)}`;
+        }
+
+        timerStartBtn.addEventListener('click', () => {
+            if (timerInterval) return;
+            if (timeLeft === 0) {
+                timeLeft = parseInt(timerInput.value, 10) || 0;
+            }
+            if (timeLeft <= 0) {
+                toast('Masukkan durasi timer.');
+                return;
+            }
+            timerInterval = setInterval(() => {
+                timeLeft--;
+                updateTimerDisplay();
+                if (timeLeft <= 0) {
+                    clearInterval(timerInterval);
+                    timerInterval = null;
+                    toast('Timer selesai!');
+                }
+            }, 1000);
+            timerStartBtn.style.display = 'none';
+            timerPauseBtn.style.display = 'inline-flex';
+            log('[clock] Timer dimulai.');
+        });
+
+        timerPauseBtn.addEventListener('click', () => {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            timerStartBtn.style.display = 'inline-flex';
+            timerPauseBtn.style.display = 'none';
+            log('[clock] Timer dijeda.');
+        });
+
+        timerResetBtn.addEventListener('click', () => {
+            clearInterval(timerInterval);
+            timerInterval = null;
+            timeLeft = 0;
+            updateTimerDisplay();
+            timerInput.value = '';
+            timerStartBtn.style.display = 'inline-flex';
+            timerPauseBtn.style.display = 'none';
+            log('[clock] Timer direset.');
+        });
+
+        // Loop for analog clock
+        setInterval(drawClock, 1000);
+        drawClock();
+        
+        // --- NEW: App Store Logic ---
+        function renderStore() {
+            const storeAppsEl = $('#storeApps');
+            if(!storeAppsEl) return;
+            storeAppsEl.innerHTML = '';
+            
+            STORE_APPS.forEach(app => {
+                const appItem = document.createElement('div');
+                appItem.className = 'app-item';
+                const installed = INSTALLED_APPS[app.id];
+                const buttonText = installed ? 'Open' : 'Install';
+                const buttonClass = installed ? '' : 'install';
+
+                appItem.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        ${app.icon}
+                        <div>
+                            <div class="title">${app.name}</div>
+                            <div class="desc">${app.desc}</div>
+                        </div>
+                    </div>
+                    <button class="btn small ${buttonClass}" data-app-id="${app.id}">${buttonText}</button>
+                `;
+                storeAppsEl.appendChild(appItem);
+            });
+
+            storeAppsEl.querySelectorAll('.btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const appId = btn.dataset.appId;
+                    const app = STORE_APPS.find(a => a.id === appId);
+                    if (app) {
+                        if (btn.textContent === 'Install') {
+                            installApp(app);
+                        }
+                        openWindow($('#' + app.windowId));
+                    }
+                });
+            });
+        }
+        
+        function installApp(app) {
+            INSTALLED_APPS[app.id] = true;
+            renderInstalledAppsMenu();
+            renderStore();
+            toast(`${app.name} berhasil diinstal!`);
+            log(`[store] ${app.name} installed.`);
+        }
+        
+        function renderInstalledAppsMenu() {
+            const menu = $('#installedAppsMenu');
+            menu.innerHTML = '';
+            STORE_APPS.forEach(app => {
+                if (INSTALLED_APPS[app.id]) {
+                    const item = document.createElement('div');
+                    item.className = 'menu-item';
+                    item.innerHTML = `${app.icon}<div><div class="title">${app.name}</div><div class="desc">Jalankan aplikasi</div></div>`;
+                    item.addEventListener('click', () => {
+                        openWindow($('#' + app.windowId));
+                        startMenu.classList.remove('active');
+                    });
+                    menu.appendChild(item);
+                }
+            });
+            if(menu.innerHTML.trim() !== ''){
+                const divider = document.createElement('div');
+                divider.className = 'divider';
+                menu.prepend(divider);
             }
         }
+
+        // --- NEW: Ebytor App Logic ---
+        const ebytorCodeEl = $('#ebytorCode');
+        const ebytorPreviewEl = $('#ebytorPreview');
+        const runEbytorBtn = $('#runEbytorBtn');
+        const openEbytorFileBtn = $('#openEbytorFileBtn');
+        const saveEbytorFileBtn = $('#saveEbytorFileBtn');
+
+        runEbytorBtn.addEventListener('click', () => {
+            const htmlCode = ebytorCodeEl.value;
+            const doc = ebytorPreviewEl.contentWindow.document;
+            doc.open();
+            doc.write(htmlCode);
+            doc.close();
+            log('[ebytor] Code run in preview.');
+        });
+        
+        openEbytorFileBtn.addEventListener('click', () => {
+            openFileModal('open');
+        });
+        
+        saveEbytorFileBtn.addEventListener('click', () => {
+            openFileModal('save');
+        });
+
+        // Initial content for Ebytor
+        ebytorCodeEl.value = `<!DOCTYPE html>
+<html>
+<head>
+    <title>Hello MIOS!</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            background-color: #f0f0f0;
+            color: #333;
+            padding: 20px;
+        }
+        h1 {
+            color: #5b9cff;
+        }
+    </style>
+</head>
+<body>
+    <h1>Selamat datang di Ebytor!</h1>
+    <p>Silakan tulis kode HTML Anda di sini dan klik tombol "Run HTML" untuk melihat hasilnya.</p>
+</body>
+</html>
+`;
+
+        // --- NEW: File Modal Logic (untuk Ebytor) ---
+        const fileModal = $('#fileModal');
+        const modalTitle = $('#modalTitle');
+        const modalFileList = $('#modal-file-list');
+        const newFileNameInput = $('#newFileName');
+        const modalOkBtn = $('#modalOkBtn');
+        const modalCancelBtn = $('#modalCancelBtn');
+
+        let currentModalMode = ''; // 'open' or 'save'
+
+        function openFileModal(mode) {
+            currentModalMode = mode;
+            modalTitle.textContent = mode === 'open' ? 'Open File' : 'Save File';
+            newFileNameInput.placeholder = mode === 'open' ? 'Pilih file...' : 'Nama file...';
+            newFileNameInput.value = '';
+            renderModalFileList();
+            fileModal.classList.add('active');
+        }
+
+        modalCancelBtn.addEventListener('click', () => {
+            fileModal.classList.remove('active');
+        });
+        fileModal.addEventListener('click', (e) => {
+            if (e.target === fileModal) {
+                fileModal.classList.remove('active');
+            }
+        });
+        
+        async function renderModalFileList() {
+            modalFileList.innerHTML = '<p class="muted">Memuat file...</p>';
+            try {
+                const data = await getFiles();
+                if (data.status === 'error') {
+                    modalFileList.innerHTML = `<p class="muted">Gagal memuat file: ${data.message}</p>`;
+                    return;
+                }
+                modalFileList.innerHTML = '';
+                data.files.forEach(file => {
+                    if (file.is_dir) return; // Hanya tampilkan file
+                    
+                    const fileEl = document.createElement('div');
+                    fileEl.className = 'file-item file';
+                    fileEl.innerHTML = `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg><span>${file.name}</span>`;
+                    fileEl.addEventListener('click', () => {
+                        newFileNameInput.value = file.name;
+                    });
+                    modalFileList.appendChild(fileEl);
+                });
+            } catch (e) {
+                modalFileList.innerHTML = `<p class="muted">Gagal memuat file: ${e.message}</p>`;
+            }
+        }
+        
+        modalOkBtn.addEventListener('click', async () => {
+            const filename = newFileNameInput.value.trim();
+            if (!filename) {
+                toast('Nama file tidak boleh kosong.');
+                return;
+            }
+            
+            if (currentModalMode === 'open') {
+                try {
+                    const response = await fetch(`${ADMIN_API_FILE_OPEN}?path=${encodeURIComponent(filename)}`);
+                    const data = await response.json();
+                    if (data.status === 'success') {
+                        ebytorCodeEl.value = data.content;
+                        runEbytorBtn.click(); // Run immediately after opening
+                        toast(`File '${filename}' berhasil dibuka.`);
+                        log(`[ebytor] Opened file '${filename}'.`);
+                    } else {
+                        toast(`Gagal membuka file: ${data.message}`);
+                    }
+                } catch (e) {
+                    toast(`Error: ${e.message}`);
+                }
+            } else if (currentModalMode === 'save') {
+                try {
+                    const content = ebytorCodeEl.value;
+                    const response = await fetch(ADMIN_API_FILE_SAVE, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ filename, content })
+                    });
+                    const data = await response.json();
+                    if (data.status === 'success') {
+                        toast(`File '${filename}' berhasil disimpan.`);
+                        log(`[ebytor] Saved file '${filename}'.`);
+                    } else {
+                        toast(`Gagal menyimpan file: ${data.message}`);
+                    }
+                } catch (e) {
+                    toast(`Error: ${e.message}`);
+                }
+            }
+            fileModal.classList.remove('active');
+        });
+
+        // Initial setup
+        renderStore();
+        
+        // Tab system for Admin Panel
+        const tabList = $('#adminWindow .tabs');
+        tabList.addEventListener('click', (e) => {
+            const target = e.target.closest('.tab');
+            if (!target) return;
+            
+            const tabId = target.dataset.tab;
+            
+            // Remove active class from all tabs
+            $$('#adminWindow .tab').forEach(t => t.classList.remove('active'));
+            // Hide all tab panels
+            $$('#adminWindow .tab-panel').forEach(p => p.classList.remove('active'));
+            
+            // Add active class to clicked tab
+            target.classList.add('active');
+            // Show the corresponding tab panel
+            $('#tab-' + tabId).classList.add('active');
+        });
 
     </script>
 </body>
 </html>
 """
-
-def get_local_ip():
-    """Mendapatkan alamat IP lokal"""
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
-    except:
-        return "127.0.0.1"
-
-def get_public_ip():
-    """Mendapatkan alamat IP publik"""
-    try:
-        response = requests.get('https://httpbin.org/ip', timeout=5)
-        return response.json()['origin']
-    except:
-        return "Tidak dapat mendapatkan IP publik"
-
-def format_file_size(size):
-    """Format ukuran file menjadi readable format"""
-    for unit in ['B', 'KB', 'MB', 'GB']:
-        if size < 1024.0:
-            return f"{size:.2f} {unit}"
-        size /= 1024.0
-    return f"{size:.2f} TB"
-
-def get_file_info(directory):
-    """Mendapatkan informasi file dan direktori"""
-    files = []
-    dir_count = 0
-    total_size = 0
-    
-    for filename in os.listdir(directory):
-        filepath = os.path.join(directory, filename)
-        is_dir = os.path.isdir(filepath)
-        
-        if is_dir:
-            dir_count += 1
-            size = "Directory"
-            modified = datetime.fromtimestamp(os.path.getmtime(filepath)).strftime("%Y-%m-%d %H:%M")
-        else:
-            file_size = os.path.getsize(filepath)
-            total_size += file_size
-            size = format_file_size(file_size)
-            modified = datetime.fromtimestamp(os.path.getmtime(filepath)).strftime("%Y-%m-%d %H:%M")
-        
-        files.append({
-            'name': filename,
-            'is_dir': is_dir,
-            'size': size,
-            'modified': modified
-        })
-    
-    return files, dir_count, total_size
-
-def start_server(directory, selected_port=5000):
-    """Menjalankan server Flask"""
-    global app, current_directory, port, is_running, start_time
-    current_directory = directory
-    port = selected_port
-    is_running = True
-    start_time = datetime.now()
-    
-    @app.route('/')
-    def index():
-        """Halaman utama"""
-        files = os.listdir(directory)
-        local_ip = get_local_ip()
-        public_ip = get_public_ip()
-        
-        return f"""
-        <!doctype html>
-        <html lang="id">
-        <head>
-          <meta charset="utf-8" />
-          <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <title>X(</title>
-          <style>
-            body {{
-              margin: 0;
-              font-family: Arial, sans-serif;
-              background: #fff;
-              color: #3c4043;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              height: 100vh;
-              text-align: center;
-            }}
-            .container {{
-              max-width: 400px;
-              padding: 24px;
-            }}
-            .emoji {{
-              font-size: 64px;
-              margin-bottom: 16px;
-            }}
-            h1 {{
-              font-size: 1.8rem;
-              font-weight: normal;
-              margin: 0 0 8px;
-            }}
-            p {{
-              margin: 4px 0 16px;
-              color: #5f6368;
-            }}
-            .button {{
-              display: inline-block;
-              margin-top: 20px;
-              background: #1a73e8;
-              color: white;
-              padding: 8px 16px;
-              border-radius: 4px;
-              font-size: 0.9rem;
-              text-decoration: none;
-            }}
-            .button:hover {{
-              background: #1765cc;
-            }}
-          </style>
-        </head>
-        <body>
-          <div class="container">
-            <div class="emoji">X(</div>
-            <h1>Aw, Snap!</h1>
-            <p>Something went wrong with the server. We'll be back soon..</p>
-            <p><b>Local IP:</b> {local_ip} <br> <b>Public IP:</b> {public_ip}</p>
-            <a href="/" class="button">Reload</a>
-            <a href="https://youtube.com" class="button">Youtube</a>
-          </div>
-        </body>
-        </html>
-        """
-    
-    @app.route('/files/<path:filename>')
-    def serve_file(filename):
-        """Melayani file dari direktori"""
-        return send_from_directory(directory, filename)
-    
-    @app.route('/admin')
-    def admin():
-        """Panel admin"""
-        files, dir_count, total_size = get_file_info(directory)
-        total_size_mb = total_size / (1024 * 1024)
-        
-        # Hitung waktu aktif
-        uptime = datetime.now() - start_time
-        uptime_str = str(uptime).split('.')[0]
-        
-        local_ip = get_local_ip()
-        public_ip = get_public_ip()
-        
-        return render_template_string(ADMIN_PANEL,
-                                    time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                    directory=directory,
-                                    file_count=len(files),
-                                    dir_count=dir_count,
-                                    total_size=f"{total_size_mb:.2f}",
-                                    uptime=uptime_str,
-                                    local_ip=local_ip,
-                                    public_ip=public_ip,
-                                    port=port,
-                                    files=files,
-                                    start_time=start_time.strftime("%Y-%m-%d %H:%M:%S"))
-    
-    @app.route('/admin/settings', methods=['POST'])
-    def save_settings():
-        """Menyimpan pengaturan server"""
-        # Di implementasi nyata, simpan pengaturan ke file konfigurasi
-        return redirect('/admin')
-    
-    @app.route('/shutdown')
-    def shutdown():
-        """Menghentikan server"""
-        global is_running
-        is_running = False
-        return "Server is shutting down..."
-    
-    # Jalankan server dengan waitress untuk akses publik
-    print(f"Server berjalan di http://{get_local_ip()}:{port}")
-    print(f"IP Publik: http://{get_public_ip()}:{port}")
-    print(f"Melayani direktori: {directory}")
-    print("Tekan Ctrl+C untuk menghentikan server")
-    print("\nAkses admin panel di: http://localhost:{port}/admin")
-    
-    # Buka browser otomatis
-    webbrowser.open(f"http://localhost:{port}/admin")
-    
-    # Jalankan server dengan waitress (production server)
-    serve(app, host=host, port=port)
-
-def main():
-    """Fungsi utama program"""
-    print("=" * 60)
-    print("MISE - Mini Server dengan Admin Panel Sederhana")
-    print("=" * 60)
-    print("Server ini dapat diakses dari perangkat lain dalam jaringan")
-    print("yang sama atau melalui internet (jika terkoneksi langsung).")
-    print("")
-    
-    while True:
-        print("\nPilihan:")
-        print("1. Buat Server")
-        print("2. Keluar")
-        
-        choice = input("Masukkan pilihan (1/2): ").strip()
-        
-        if choice == "1":
-            # Buat server baru
-            directory = input("Masukkan path direktori yang akan dilayani: ").strip()
-            
-            if not os.path.exists(directory):
-                print("Direktori tidak ditemukan!")
-                continue
-                
-            port_input = input("Masukkan port (default 5000): ").strip()
-            port = int(port_input) if port_input.isdigit() else 5000
-            
-            # Jalankan server di thread terpisah
-            global server_thread
-            server_thread = threading.Thread(target=start_server, args=(directory, port))
-            server_thread.daemon = True
-            server_thread.start()
-            
-            try:
-                # Biarkan server berjalan
-                while is_running:
-                    time.sleep(1)
-            except KeyboardInterrupt:
-                print("\nServer dihentikan.")
-                break
-                
-        elif choice == "2":
-            print("Terima kasih telah menggunakan MISE!")
-            break
-            
-        else:
-            print("Pilihan tidak valid. Silakan coba lagi.")
-
-if __name__ == "__main__":
-    main()
-
-# ====== END OF FILE: MISE.py ======
-
-# ====== START OF FILE: misetest.py ======
-import os
-import sys
-import webbrowser
-import threading
-import time
-import socket
-import requests
-import random
-import subprocess
-from datetime import datetime
-from flask import Flask, render_template_string, send_from_directory, request, redirect, jsonify
-from waitress import serve
-
-# ------------------------------
-# Konfigurasi dasar
-# ------------------------------
-app = Flask(__name__, static_folder=None)
-HOST = "0.0.0.0"
-PORT = 5000
-
-# State global
-current_directory = os.getcwd()
-is_running = False
-start_time = datetime.now()
-_shutdown_code = None
-_shutdown_lock = threading.Lock()
-
-# ------------------------------
-# HTML Admin Panel
-# ------------------------------
-ADMIN_PANEL = r"""
-<!DOCTYPE html>
-<html lang="id">
-<head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>MIOS</title>
-    <style>
-        :root {
-            --bg: #0f1115;
-            --panel: #151923;
-            --panel-2: #1b2030;
-            --text: #e7eaf0;
-            --muted: #9aa3b2;
-            --accent: #5b9cff;
-            --accent-2: #7dd3fc;
-            --danger: #ef4444;
-            --ok: #22c55e;
-            --warn: #f59e0b;
-            --shadow: 0 8px 30px rgba(0,0,0,.35);
-            --radius: 14px;
-        }
-
-        .light-theme {
-            --bg: #f5f5f5;
-            --panel: #ffffff;
-            --panel-2: #f8f8f8;
-            --text: #1d1d23;
-            --muted: #6b7280;
-            --accent: #3b82f6;
-            --accent-2: #0ea5e9;
-            --danger: #dc2626;
-            --ok: #16a34a;
-            --warn: #d97706;
-            --shadow: 0 8px 30px rgba(0,0,0,.15);
-        }
-        
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-            background-color: var(--bg);
-            color: var(--text);
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            min-height: 100vh;
-        }
-
-        .container {
-            width: 100%;
-            max-width: 900px;
-            display: grid;
-            gap: 20px;
-        }
-
-        .panel {
-            background-color: var(--panel);
-            border-radius: var(--radius);
-            padding: 20px;
-            box-shadow: var(--shadow);
-            border: 1px solid var(--panel-2);
-        }
-
-        h1, h2, h3 {
-            margin-top: 0;
-            color: var(--text);
-        }
-
-        h1 {
-            font-size: 2.5em;
-        }
-
-        h2 {
-            font-size: 1.5em;
-            margin-bottom: 10px;
-        }
-
-        .info-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 15px;
-        }
-        
-        .info-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .info-item .label {
-            color: var(--muted);
-            font-size: 0.9em;
-            text-transform: uppercase;
-        }
-
-        .info-item .value {
-            font-weight: bold;
-        }
-
-        .action-button {
-            display: inline-block;
-            padding: 10px 20px;
-            border-radius: var(--radius);
-            text-decoration: none;
-            font-weight: bold;
-            text-align: center;
-            cursor: pointer;
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
-            white-space: nowrap;
-            font-size: 1em;
-            border: none;
-        }
-        
-        .action-button:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 4px 10px rgba(0,0,0,.2);
-        }
-
-        .button-primary {
-            background-color: var(--accent);
-            color: white;
-        }
-        
-        .button-danger {
-            background-color: var(--danger);
-            color: white;
-        }
-        
-        .button-neutral {
-            background-color: var(--panel-2);
-            color: var(--text);
-        }
-        
-        .button-ok {
-            background-color: var(--ok);
-            color: white;
-        }
-        
-        .button-warn {
-            background-color: var(--warn);
-            color: white;
-        }
-        
-        .button-group {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-
-        .file-list {
-            list-style: none;
-            padding: 0;
-        }
-        
-        .file-item {
-            background-color: var(--panel-2);
-            padding: 10px 15px;
-            border-radius: var(--radius);
-            margin-bottom: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            word-break: break-all;
-            gap: 10px;
-        }
-        
-        .file-item a {
-            color: var(--text);
-            text-decoration: none;
-            word-break: break-all;
-            flex-grow: 1;
-        }
-
-        .file-item .download-button {
-            background-color: var(--accent);
-            color: white;
-            padding: 5px 10px;
-            border-radius: 8px;
-            text-decoration: none;
-            font-weight: bold;
-            white-space: nowrap;
-        }
-
-        #file-path {
-            font-family: monospace;
-            background-color: #0d1013;
-            padding: 10px;
-            border-radius: var(--radius);
-            border: 1px solid var(--panel-2);
-            overflow-x: auto;
-        }
-
-        .dialog {
-            position: fixed;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            background-color: var(--panel);
-            padding: 30px;
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            z-index: 1000;
-            display: none;
-            flex-direction: column;
-            gap: 20px;
-            width: 90%;
-            max-width: 400px;
-        }
-        
-        .dialog input {
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid var(--panel-2);
-            background-color: var(--bg);
-            color: var(--text);
-        }
-
-        .dialog-buttons {
-            display: flex;
-            justify-content: flex-end;
-            gap: 10px;
-        }
-        
-        #overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.7);
-            z-index: 999;
-            display: none;
-        }
-        
-        .toast {
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background-color: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 10px;
-            opacity: 0;
-            transition: opacity 0.3s ease;
-            z-index: 2000;
-        }
-
-        @media (min-width: 600px) {
-            .container {
-                grid-template-columns: 2fr 1fr;
-            }
-            .main-content {
-                grid-column: span 2;
-            }
-            .side-panel {
-                grid-column: span 1;
-            }
-        }
-        
-        .status-light {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            display: inline-block;
-            margin-right: 5px;
-        }
-
-        .status-running {
-            background-color: var(--ok);
-        }
-
-        .status-stopped {
-            background-color: var(--danger);
-        }
-    </style>
-</head>
-<body>
-<!-- ...existing code... -->
-</body>
-</html>
-"""
-
 # ------------------------------
 # Fungsi Pembantu
 # ------------------------------
@@ -1794,11 +2114,20 @@ def get_local_ip():
         s.close()
     return IP
 
-def do_exit():
-    """Mematikan server."""
-    global is_running
-    time.sleep(1)
-    is_running = False
+def format_file_size(size_in_bytes):
+    if size_in_bytes is None:
+        return ""
+    if size_in_bytes < 1024:
+        return f"{size_in_bytes} B"
+    elif size_in_bytes < 1024 ** 2:
+        return f"{size_in_bytes / 1024:.2f} KB"
+    elif size_in_bytes < 1024 ** 3:
+        return f"{size_in_bytes / (1024 ** 2):.2f} MB"
+    else:
+        return f"{size_in_bytes / (1024 ** 3):.2f} GB"
+
+def shutdown_server():
+    print("\n[INFO] Mematikan server...")
     os._exit(0)
 
 # ------------------------------
@@ -1806,127 +2135,207 @@ def do_exit():
 # ------------------------------
 @app.route("/", methods=["GET"])
 def home():
+    """Menyajikan halaman utama atau halaman default."""
+    if main_html_file:
+        try:
+            return send_from_directory(current_directory, main_html_file)
+        except Exception:
+            return redirect("/admin")
+    return redirect("/admin")
+
+@app.route("/admin", methods=["GET"])
+def admin_panel():
     """Menyajikan halaman admin panel."""
     return render_template_string(ADMIN_PANEL)
+
+@app.route("/<path:filename>", methods=["GET"])
+def serve_file(filename):
+    """Menyajikan file statis dari direktori."""
+    try:
+        return send_from_directory(current_directory, filename)
+    except Exception as e:
+        return str(e), 404
 
 @app.route("/api/files", methods=["GET"])
 def api_files():
     """Mengembalikan daftar file dan folder."""
+    requested_path = request.args.get('path', '')
     base_path = current_directory
-    requested_path = request.args.get('path', '/')
     
-    # Normalisasi path
-    if requested_path.startswith('/'):
-        requested_path = requested_path[1:]
-    
-    full_path = os.path.join(base_path, requested_path)
-    
-    # Verifikasi keamanan
-    if not os.path.abspath(full_path).startswith(os.path.abspath(base_path)):
+    # Normalisasi path dan verifikasi keamanan
+    full_path = os.path.normpath(os.path.join(base_path, requested_path))
+    if not full_path.startswith(base_path):
         return jsonify({"status": "error", "message": "Akses Ditolak"}), 403
 
     if not os.path.isdir(full_path):
-        return jsonify({"status": "error", "message": "Direktori tidak ditemukan", "path": requested_path}), 404
-        
+        return jsonify({"status": "error", "message": "Path bukan direktori"}), 400
+
+    files_list = []
     try:
-        files = []
-        with os.scandir(full_path) as entries:
-            for entry in sorted(entries, key=lambda e: (not e.is_dir(), e.name.lower())):
-                item = {
-                    "name": entry.name,
-                    "is_dir": entry.is_dir(),
-                    "size": entry.stat().st_size if not entry.is_dir() else None
-                }
-                files.append(item)
+        # Menambahkan "..." untuk kembali ke direktori induk
+        if full_path != base_path:
+            parent_path = os.path.dirname(full_path)
+            # Pastikan path induk masih di dalam base_path
+            if parent_path.startswith(base_path):
+                files_list.append({
+                    'name': '..',
+                    'is_dir': True,
+                    'is_parent': True,
+                    'path': os.path.relpath(parent_path, base_path)
+                })
 
-        parent_path = os.path.dirname(requested_path) if requested_path else None
+        # Urutkan folder di atas
+        items = sorted(os.listdir(full_path), key=lambda x: (not os.path.isdir(os.path.join(full_path, x)), x.lower()))
 
-        return jsonify({
-            "status": "ok",
-            "current_path": os.path.normpath(requested_path),
-            "parent_path": os.path.normpath(parent_path) if parent_path else None,
-            "files": files
-        })
+        for filename in items:
+            filepath = os.path.join(full_path, filename)
+            is_dir = os.path.isdir(filepath)
+            size = None
+            if not is_dir:
+                size = format_file_size(os.path.getsize(filepath))
+            
+            files_list.append({
+                'name': filename,
+                'is_dir': is_dir,
+                'is_parent': False,
+                'path': os.path.relpath(filepath, base_path),
+                'size': size
+            })
     except Exception as e:
-        print(f"Error reading directory: {e}")
-        return jsonify({"status": "error", "message": f"Gagal membaca direktori: {e}"}), 500
+        return jsonify({"status": "error", "message": str(e)}), 500
 
-@app.route("/download", methods=["GET"])
-def download_file():
-    """Mengunduh file dari server."""
-    file_path_rel = request.args.get('path')
-    if not file_path_rel:
-        return "Parameter 'path' diperlukan", 400
+    return jsonify({"status": "success", "files": files_list})
 
-    safe_path = os.path.join(current_directory, file_path_rel.strip('/'))
+@app.route("/api/preview_file", methods=["GET"])
+def api_preview_file():
+    """Mengembalikan isi file teks."""
+    requested_path = request.args.get('path', '')
+    base_path = current_directory
 
-    if not os.path.abspath(safe_path).startswith(os.path.abspath(current_directory)):
-        return "Akses Ditolak", 403
+    full_path = os.path.normpath(os.path.join(base_path, requested_path))
+    
+    if not full_path.startswith(base_path) or not os.path.isfile(full_path):
+        return "File tidak ditemukan atau akses ditolak.", 404
 
-    if not os.path.exists(safe_path) or os.path.isdir(safe_path):
-        return "File tidak ditemukan", 404
+    # Cek MIME type sederhana untuk keamanan
+    try:
+        mimetype, _ = mimetypes.guess_type(full_path)
+        if not mimetype or not mimetype.startswith('text/'):
+            return "Pratinjau hanya tersedia untuk file teks.", 403
+    except:
+        return "Gagal menentukan jenis file.", 500
+    
+    try:
+        with open(full_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+            return content, 200, {'Content-Type': 'text/plain; charset=utf-8'}
+    except Exception as e:
+        return str(e), 500
 
-    return send_from_directory(os.path.dirname(safe_path), os.path.basename(safe_path), as_attachment=True)
+@app.route("/api/file/open", methods=["GET"])
+def api_file_open():
+    """Membuka dan mengembalikan konten file."""
+    requested_path = request.args.get('path', '')
+    base_path = current_directory
+    
+    full_path = os.path.normpath(os.path.join(base_path, requested_path))
+    
+    if not full_path.startswith(base_path):
+        return jsonify({"status": "error", "message": "Akses Ditolak"}), 403
+    
+    if not os.path.isfile(full_path):
+        return jsonify({"status": "error", "message": "File tidak ditemukan"}), 404
+
+    try:
+        with open(full_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        return jsonify({"status": "success", "content": content})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route("/api/file/save", methods=["POST"])
+def api_file_save():
+    """Menyimpan konten ke file."""
+    data = request.json
+    filename = data.get('filename')
+    content = data.get('content')
+    
+    if not filename or content is None:
+        return jsonify({"status": "error", "message": "Nama file dan konten diperlukan"}), 400
+        
+    base_path = current_directory
+    full_path = os.path.normpath(os.path.join(base_path, filename))
+    
+    if not full_path.startswith(base_path):
+        return jsonify({"status": "error", "message": "Akses Ditolak"}), 403
+
+    try:
+        with open(full_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        return jsonify({"status": "success"})
+    except Exception as e:
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route("/api/media", methods=["GET"])
+def api_media():
+    """Menyajikan file media."""
+    filename = request.args.get('filename')
+    base_path = current_directory
+    
+    full_path = os.path.normpath(os.path.join(base_path, filename))
+    if not full_path.startswith(base_path) or not os.path.isfile(full_path):
+        return "File tidak ditemukan atau akses ditolak.", 404
+        
+    return send_from_directory(os.path.dirname(full_path), os.path.basename(full_path))
 
 @app.route("/api/shutdown", methods=["POST"])
 def api_shutdown():
-    """Mematikan server dari permintaan API."""
-    global _shutdown_code
-    with _shutdown_lock:
-        if _shutdown_code is None:
-            # Generate code and display to console
-            _shutdown_code = str(random.randint(1000, 9999))
-            print(f"\n[INFO] Kode pemadaman server (4 digit): {_shutdown_code}\n")
-            sys.stdout.flush()
-            return jsonify({"status": "info", "message": "Kode pemadaman dikirim ke konsol. Masukkan di sini."}), 202
-
-        data = request.json
-        client_code = data.get("code")
-        
-        if client_code == _shutdown_code:
-            print("[INFO] Kode cocok. Mematikan server...")
-            sys.stdout.flush()
-            threading.Thread(target=do_exit, daemon=True).start()
-            return jsonify({"status": "ok", "message": "Server sedang dimatikan."})
-        else:
-            print("[SECURITY] Kode pemadaman tidak cocok.")
-            sys.stdout.flush()
-            return jsonify({"status": "error", "message": "Kode tidak valid"}), 403
-
-@app.route("/api/info", methods=["GET"])
-def api_info():
-    """Mengembalikan informasi server."""
-    return jsonify({
-        "local_ip": get_local_ip(),
-        "cwd": current_directory,
-        "start_time": start_time.isoformat()
-    })
+    """Mematikan server."""
+    global shutdown_code
+    shutdown_code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    print(f"\n[INFO] Kode untuk mematikan server: {shutdown_code}")
+    threading.Thread(target=lambda: (time.sleep(15), shutdown_server()), daemon=True).start()
+    return jsonify({"status": "success", "code": shutdown_code}), 200
 
 # ------------------------------
 # Main: jalankan server
 # ------------------------------
-def start_server(directory=None, host=HOST, port=PORT):
+def start_server(directory=None, selected_port=5000):
     """Fungsi utama untuk memulai server."""
-    global current_directory, is_running, start_time
+    global current_directory, is_running, port
     if directory:
-        current_directory = directory
+        current_directory = os.path.abspath(directory)
     is_running = True
-    start_time = datetime.now()
+    port = selected_port
+    
     local_ip = get_local_ip()
-    print(f"\n[INFO] Server dimulai di: http://{local_ip}:{port}")
-    print(f"[INFO] Direktori yang dilayani: {current_directory}")
-    print("[INFO] Buka tautan di atas untuk mengakses panel admin.")
-    print("[INFO] Untuk mematikan server dari antarmuka, klik 'Matikan Server'.")
-    print("[INFO] Kode pemadaman akan muncul di konsol ini.")
-    sys.stdout.flush()
-    serve(app, host=host, port=port)
+    print(f"\n[INFO] Server dimulai di http://{local_ip}:{port}")
+    print(f"[INFO] Melayani direktori: {current_directory}")
+    print(f"[INFO] Admin Panel tersedia di http://localhost:{port}/admin")
+    if main_html_file:
+        print(f"[INFO] Halaman utama tersedia di http://localhost:{port}/")
+    else:
+        print("[INFO] Halaman utama (/) mengarah ke Admin Panel.")
+
+
+    try:
+        serve(app, host=host, port=port)
+    except Exception as e:
+        print(f"Error saat memulai server: {e}")
+        is_running = False
 
 def main():
-    """Fungsi utama untuk antarmuka baris perintah."""
-    print("Selamat datang di MISE - MIOS Server.")
-    print("Aplikasi ini memungkinkan Anda berbagi file dari perangkat Anda")
-    print("ke perangkat lain dalam jaringan yang sama atau melalui internet.")
+    """Fungsi utama program"""
+    print("=" * 60)
+    print("MISE - Mini Server dengan Admin Panel Sederhana")
+    print("=" * 60)
+    print("Server ini dapat diakses dari perangkat lain dalam jaringan")
+    print("yang sama atau melalui internet (jika terkoneksi langsung).")
+    print("")
     
+    global main_html_file
+
     while True:
         print("\nPilihan:")
         print("1. Buat Server")
@@ -1944,6 +2353,12 @@ def main():
             if not os.path.isdir(directory):
                 print("Path yang dimasukkan bukan direktori!")
                 continue
+
+            main_html_file = input("Masukkan nama file HTML yang akan dijadikan halaman utama (kosongkan jika tidak ada): ").strip()
+            
+            if main_html_file and not os.path.isfile(os.path.join(directory, main_html_file)):
+                print(f"File '{main_html_file}' tidak ditemukan di direktori tersebut. Server akan tetap berjalan, tetapi halaman utama tidak akan berfungsi.")
+                main_html_file = None
                 
             port_input = input("Masukkan port (default 5000): ").strip()
             port = int(port_input) if port_input.isdigit() else 5000
@@ -1969,4 +2384,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-# ====== END OF FILE: misetest.py ======

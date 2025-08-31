@@ -1,89 +1,101 @@
-Templat README untuk MISE – Mini Web Server Build With Python
 # MISE (Mini Web Server Built With Python)
 
-Deskripsi singkat:
-MISE adalah mini web server yang dibangun dengan Python. Cocok untuk kebutuhan pengembangan ringan atau pembelajaran.
+**MISE** adalah web server mini yang dibangun menggunakan Python. Proyek ini sangat cocok untuk kebutuhan pengembangan ringan, pengujian, atau sebagai bahan pembelajaran dasar.
 
 ---
 
-##  Daftar Isi
-
-- [Prerequisites](#prerequisites)  
-- [ Instalasi](#instalasi)  
-- [ Cara Menjalankan](#cara-menjalankan)  
-- [ Struktur Proyek](#struktur-proyek)  
-- [ Konfigurasi (jika ada)](#konfigurasi-jika-ada)  
-- [ Kontribusi](#kontribusi)  
-- [ Lisensi](#lisensi)
-
----
-
-##  Prerequisites
-
-- Python 3.x (sebutkan versi minimum, misalnya 3.8+)  
-- [Opsional] Virtual environment (`venv` atau `virtualenv`)  
-- [Jika ada dependencies di `requirements.txt`] Jalankan `pip install -r requirements.txt`
+## Daftar Isi
+- [Prasyarat](#prasyarat)
+- [Instalasi](#instalasi)
+- [Cara Menjalankan](#cara-menjalankan)
+- [Struktur Proyek](#struktur-proyek)
+- [Konfigurasi](#konfigurasi)
+- [Kontribusi](#kontribusi)
+- [Lisensi](#lisensi)
 
 ---
 
-##  Instalasi
+## Prasyarat
+Sebelum memulai, pastikan Anda telah menginstal:
+- **Python 3.x** (disarankan versi 3.8 ke atas)
 
-1. Clone repositori:
-   ```bash
-   git clone https://github.com/Files2012/MISE.git
-   cd MISE
+Jika ada _dependencies_ lain, pastikan Anda juga menginstalnya dari `requirements.txt`.
 
+---
 
-(Opsional, tapi disarankan) Set up virtual environment:
+## Instalasi
+1.  **Clone repositori:**
+    ```bash
+    git clone [https://github.com/Files2012/MISE.git](https://github.com/Files2012/MISE.git)
+    cd MISE
+    ```
+2.  **Buat dan aktifkan _virtual environment_** (opsional, tapi sangat disarankan):
+    -   **macOS/Linux:**
+        ```bash
+        python3 -m venv venv
+        source venv/bin/activate
+        ```
+    -   **Windows:**
+        ```bash
+        py -m venv venv
+        venv\Scripts\activate
+        ```
+3.  **Instal semua _dependencies_:**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-python3 -m venv venv
-source venv/bin/activate   # macOS/Linux
-venv\Scripts\activate      # Windows
+---
 
+## Cara Menjalankan
+Pilih salah satu cara di bawah ini, sesuaikan dengan _entry point_ proyek Anda.
 
-Install dependencies:
+1.  **Menggunakan modul Python (contoh `server.py`):**
+    ```bash
+    python server.py
+    ```
+2.  **Menggunakan Flask:**
+    -   **macOS/Linux:**
+        ```bash
+        export FLASK_APP=app.py
+        flask run
+        ```
+    -   **Windows:**
+        ```bash
+        set FLASK_APP=app.py
+        flask run
+        ```
+3.  **Menggunakan _script_ `run.sh`:**
+    ```bash
+    chmod +x run.sh
+    ./run.sh
+    ```
 
-pip install -r requirements.txt
+Setelah server berjalan, buka `http://localhost:8000` (atau port yang telah ditentukan) di _browser_ Anda.
 
-Cara Menjalankan
+---
 
-Ada beberapa kemungkinan cara menjalankan server—sesuaikan dengan apa yang digunakan di proyek kamu:
-
-Contoh 1 – Menggunakan modul Python (misalnya server.py):
-
-python server.py
-
-
-Contoh 2 – Menggunakan Flask (jika ini adalah aplikasi Flask):
-
-export FLASK_APP=app.py       # di macOS/Linux
-set FLASK_APP=app.py          # di Windows
-flask run
-
-
-Contoh 3 – Jika ada run.sh:
-
-chmod +x run.sh
-./run.sh
-
-
-Setelah itu, buka http://localhost:8000 (atau port yang ditentukan) di browser.
-
-Struktur Proyek
-
-Tuliskan file/folder penting di proyek agar pengguna tahu arsitekturnya. Contoh:
-
+## Struktur Proyek
+Berikut adalah gambaran umum struktur _file_ dan _folder_ di dalam proyek ini:
 MISE/
-├── server.py              # Entry point utama server
-├── static/                # File statis (CSS/JS)
-├── templates/             # Template HTML (jika menggunakan Flask)
-├── requirements.txt       # Daftar dependencies
+├── server.py              # Titik masuk (entry point) utama server
+├── static/                # File statis (CSS, JavaScript, gambar)
+├── templates/             # File template HTML
+├── requirements.txt       # Daftar semua dependencies
 └── README.md
 
-Konfigurasi
 
-Jika proyek menggunakan konfigurasi (misalnya config.py, variabel lingkungan, dll.), jelaskan di sini.
+---
 
-Kontribusi
+## Konfigurasi
+Jika proyek ini memiliki file konfigurasi (`config.py`) atau menggunakan variabel lingkungan, penjelasan tentang cara mengaturnya dapat ditemukan di sini.
 
-Tertarik bantu? Silakan ajukan pull request atau buka issue untuk diskusi. Pastikan untuk menambahkan deskripsi yang jelas dan dokumentasi jika diperlukan.
+---
+
+## Kontribusi
+Tertarik untuk berkontribusi? Jangan ragu untuk membuat _pull request_ atau membuka _issue_ untuk mendiskusikan fitur atau perbaikan. Pastikan Anda menyertakan deskripsi yang jelas dan dokumentasi yang diperlukan.
+
+---
+
+## Lisensi
+Proyek ini dilisensikan di bawah [Nama Lisensi] - lihat file [LICENSE.md](LICENSE.md) untuk detailnya.

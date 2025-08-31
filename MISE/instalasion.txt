@@ -1,1 +1,7 @@
-guide is writing right now :)
+1. open cmd/terminal on your windows
+
+2. type curl https://raw.githubusercontent.com/Files2012/MISE/main/MISE/MISE.py -o MISE.py on cmd
+
+3. enter . wait the progres
+
+4. and done 😏

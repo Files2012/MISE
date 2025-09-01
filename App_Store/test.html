@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kubus 3D Interaktif</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #1a2a6c, #b21f1f, #fdbb2d);
+            color: white;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            overflow-x: hidden;
+        }
+        
+        .container {
+            max-width: 1000px;
+            width: 100%;
+            text-align: center;
+        }
+        
+        header {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+        }
+        
+        h1 {
+            font-size: 2.8rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+        }
+        
+        .description {
+            font-size: 1.2rem;
+            max-width: 800px;
+            margin: 0 auto 20px;
+            line-height: 1.6;
+        }
+        
+        .canvas-container {
+            position: relative;
+            width: 100%;
+            margin: 20px 0;
+            perspective: 1000px;
+        }
+        
+        #canvas {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 15px;
+            box-shadow: 0 15px 25px rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+        }
+        
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 20px;
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+        }
+        
+        .control-group {
+            text-align: left;
+            padding: 15px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            min-width: 250px;
+        }
+        
+        .control-group h3 {
+            margin-bottom: 15px;
+            padding-bottom: 5px;
+            border-bottom: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .key {
+            display: inline-block;
+            padding: 5px 10px;
+            margin: 5px;
+            background: rgba(0, 0, 0, 0.5);
+            border-radius: 5px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            font-family: monospace;
+            font-weight: bold;
+        }
+        
+        .github-section {
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 15px;
+            width: 100%;
+        }
+        
+        .github-link {
+            display: inline-block;
+            margin-top: 15px;
+            padding: 12px 25px;
+            background: #333;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+        }
+        
+        .github-link:hover {
+            background: #555;
+            transform: translateY(-3px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+        }
+        
+        .instructions {
+            margin: 20px 0;
+            padding: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 15px;
+            text-align: left;
+        }
+        
+        .instructions h2 {
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .instructions ol {
+            padding-left: 20px;
+            line-height: 1.8;
+        }
+        
+        .instructions li {
+            margin-bottom: 10px;
+        }
+        
+        footer {
+            margin-top: 30px;
+            padding: 20px;
+            text-align: center;
+            width: 100%;
+            font-size: 0.9rem;
+            opacity: 0.8;
+        }
+        
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2rem;
+            }
+            
+            .description {
+                font-size: 1rem;
+            }
+            
+            .controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Kubus 3D Interaktif</h1>
+            <p class="description">
+                Aplikasi kubus 3D yang dapat digerakkan dengan keyboard. Gunakan tombol panah untuk memutar kubus,
+                tombol W/A/S/D untuk menggerakkan kamera, dan tombol +/- untuk zoom.
+            </p>
+        </header>
+        
+        <div class="canvas-container">
+            <canvas id="canvas" width="800" height="500"></canvas>
+        </div>
+        
+        <div class="controls">
+            <div class="control-group">
+                <h3>Rotasi Kubus</h3>
+                <p><span class="key">↑</span> <span class="key">↓</span> <span class="key">←</span> <span class="key">→</span></p>
+                <p>Rotasi sumbu X dan Y</p>
+            </div>
+            
+            <div class="control-group">
+                <h3>Pergerakan Kamera</h3>
+                <p><span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span></p>
+                <p>Gerakkan kamera maju, kiri, mundur, kanan</p>
+            </div>
+            
+            <div class="control-group">
+                <h3>Zoom</h3>
+                <p><span class="key">+</span> <span class="key">-</span></p>
+                <p>Perbesar dan perkecil</p>
+            </div>
+        </div>
+        
+        <div class="instructions">
+            <h2>Cara Menyimpan ke GitHub</h2>
+            <ol>
+                <li>Buat repositori baru di GitHub</li>
+                <li>Salin kode HTML ini dan buat file dengan nama <strong>index.html</strong></li>
+                <li>Unggah file tersebut ke repositori GitHub Anda</li>
+                <li>Aktifkan GitHub Pages pada pengaturan repositori</li>
+                <li>Akses aplikasi melalui URL GitHub Pages yang disediakan</li>
+            </ol>
+        </div>
+        
+        <div class="github-section">
+            <h2>Unduh Kode untuk GitHub</h2>
+            <p>Salin seluruh kode halaman ini dan simpan sebagai file HTML, lalu unggah ke GitHub.</p>
+            <a href="#" class="github-link" id="download-btn">Salin Kode</a>
+        </div>
+    </div>
+    
+    <footer>
+        <p>Dibuat untuk Demo GitHub Pages &copy; 2023</p>
+    </footer>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const canvas = document.getElementById('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Sesuaikan ukuran canvas dengan container
+            function resizeCanvas() {
+                const container = document.querySelector('.canvas-container');
+                canvas.width = container.clientWidth - 40;
+                canvas.height = Math.min(container.clientWidth * 0.6, 500);
+            }
+            
+            window.addEventListener('resize', resizeCanvas);
+            resizeCanvas();
+            
+            // Variabel untuk mengontrol kubus
+            let rotationX = 0;
+            let rotationY = 0;
+            let zoom = 10;
+            let cameraX = 0;
+            let cameraY = 0;
+            let cameraZ = -20;
+            
+            // Titik-titik untuk kubus 3D
+            const vertices = [
+                { x: -1, y: -1, z: -1 },
+                { x: 1, y: -1, z: -1 },
+                { x: 1, y: 1, z: -1 },
+                { x: -1, y: 1, z: -1 },
+                { x: -1, y: -1, z: 1 },
+                { x: 1, y: -1, z: 1 },
+                { x: 1, y: 1, z: 1 },
+                { x: -1, y: 1, z: 1 }
+            ];
+            
+            // Edges yang menghubungkan titik-titik
+            const edges = [
+                [0, 1], [1, 2], [2, 3], [3, 0], // back face
+                [4, 5], [5, 6], [6, 7], [7, 4], // front face
+                [0, 4], [1, 5], [2, 6], [3, 7]  // connecting edges
+            ];
+            
+            // Fungsi untuk memproyeksikan titik 3D ke 2D
+            function project(point) {
+                // Terapkan rotasi
+                let x = point.x;
+                let y = point.y;
+                let z = point.z;
+                
+                // Rotasi sumbu X
+                const cosX = Math.cos(rotationX);
+                const sinX = Math.sin(rotationX);
+                const y1 = y * cosX - z * sinX;
+                const z1 = y * sinX + z * cosX;
+                
+                // Rotasi sumbu Y
+                const cosY = Math.cos(rotationY);
+                const sinY = Math.sin(rotationY);
+                const x1 = x * cosY + z1 * sinY;
+                const z2 = -x * sinY + z1 * cosY;
+                
+                // Terapkan posisi kamera
+                x = x1 + cameraX;
+                y = y1 + cameraY;
+                z = z2 + cameraZ;
+                
+                // Proyeksi perspektif
+                const scale = zoom / (zoom + z);
+                const projectedX = x * scale + canvas.width / 2;
+                const projectedY = y * scale + canvas.height / 2;
+                
+                return { x: projectedX, y: projectedY, z: z };
+            }
+            
+            // Fungsi untuk menggambar kubus
+            function drawCube() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                
+                // Gambar edges
+                ctx.beginPath();
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 2;
+                
+                for (const edge of edges) {
+                    const p1 = project(vertices[edge[0]]);
+                    const p2 = project(vertices[edge[1]]);
+                    
+                    ctx.moveTo(p1.x, p1.y);
+                    ctx.lineTo(p2.x, p2.y);
+                }
+                
+                ctx.stroke();
+                
+                // Gambar vertices
+                ctx.fillStyle = '#ff9900';
+                for (const vertex of vertices) {
+                    const p = project(vertex);
+                    if (p.z > -zoom) {
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+                        ctx.fill();
+                    }
+                }
+            }
+            
+            // Fungsi animasi
+            function animate() {
+                drawCube();
+                requestAnimationFrame(animate);
+            }
+            
+            // Event listener untuk keyboard
+            document.addEventListener('keydown', function(e) {
+                switch(e.key) {
+                    case 'ArrowUp':
+                        rotationX -= 0.1;
+                        break;
+                    case 'ArrowDown':
+                        rotationX += 0.1;
+                        break;
+                    case 'ArrowLeft':
+                        rotationY -= 0.1;
+                        break;
+                    case 'ArrowRight':
+                        rotationY += 0.1;
+                        break;
+                    case 'w':
+                    case 'W':
+                        cameraY -= 0.5;
+                        break;
+                    case 's':
+                    case 'S':
+                        cameraY += 0.5;
+                        break;
+                    case 'a':
+                    case 'A':
+                        cameraX -= 0.5;
+                        break;
+                    case 'd':
+                    case 'D':
+                        cameraX += 0.5;
+                        break;
+                    case '+':
+                        zoom += 1;
+                        break;
+                    case '-':
+                        zoom = Math.max(5, zoom - 1);
+                        break;
+                }
+            });
+            
+            // Tombol salin kode
+            document.getElementById('download-btn').addEventListener('click', function(e) {
+                e.preventDefault();
+                
+                // Salin seluruh kode HTML ke clipboard
+                const htmlContent = document.documentElement.outerHTML;
+                
+                // Buat blob untuk diunduh
+                const blob = new Blob([htmlContent], { type: 'text/html' });
+                const url = URL.createObjectURL(blob);
+                
+                // Buat elemen a untuk mengunduh
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'kubus-3d.html';
+                document.body.appendChild(a);
+                a.click();
+                
+                // Bersihkan
+                setTimeout(function() {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }, 100);
+                
+                // Ubah teks tombol sementara
+                const originalText = this.textContent;
+                this.textContent = 'Berhasil Disalin!';
+                
+                setTimeout(() => {
+                    this.textContent = originalText;
+                }, 2000);
+            });
+            
+            // Mulai animasi
+            animate();
+        });
+    </script>
+</body>
+</html>

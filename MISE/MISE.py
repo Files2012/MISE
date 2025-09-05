@@ -9,6 +9,7 @@ import random
 import string
 import json
 import requests
+import shutil
 from flask import Flask, render_template_string, send_from_directory, request, jsonify, redirect
 from datetime import datetime
 from waitress import serve
@@ -107,8 +108,38 @@ def shutdown_server():
     print("\n[INFO] Mematikan server...")
     os._exit(0)
 
-def download_variant_html(variant_name):
-    """Mendownload HTML template untuk varian yang dipilih."""
+def move_files_to_project(source_dir, target_dir):
+    """Memindahkan semua file dari direktori sumber ke direktori Project."""
+    try:
+        # Buat direktori Project jika belum ada
+        os.makedirs(target_dir, exist_ok=True)
+        
+        # Pindahkan semua file dan folder ke Project
+        for item in os.listdir(source_dir):
+            # Jangan pindahkan folder Root yang baru dibuat
+            if item == "Root":
+                continue
+                
+            source_path = os.path.join(source_dir, item)
+            target_path = os.path.join(target_dir, item)
+            
+            # Jika target sudah ada, tambahkan angka unik
+            counter = 1
+            original_target = target_path
+            while os.path.exists(target_path):
+                name, ext = os.path.splitext(original_target)
+                target_path = f"{name}_{counter}{ext}"
+                counter += 1
+            
+            shutil.move(source_path, target_path)
+            print(f"[INFO] Memindahkan: {item} -> Project/{os.path.basename(target_path)}")
+            
+        print("[INFO] Semua file berhasil dipindahkan ke folder Project")
+    except Exception as e:
+        print(f"[ERROR] Gagal memindahkan file: {e}")
+
+def download_variant_html(variant_name, source_directory):
+    """Mendownload HTML template untuk varian yang dipilih dan membuat struktur OS."""
     global selected_variant
     
     if variant_name not in VARIANTS:
@@ -120,8 +151,45 @@ def download_variant_html(variant_name):
     
     try:
         print(f"[INFO] Mendownload template untuk varian {variant_name}...")
+        print("[INFO] Creating Desktop...")
+        print("[INFO] Creating Setup for you Account...")
+
+        # Buat struktur direktori
+        desktop_path = os.path.join(source_directory, "Desktop")
+        project_path = os.path.join(desktop_path, "Project")
+        root_path = os.path.join(source_directory, "Root")
+        sysos_path = os.path.join(root_path, "Sysos")
+        user_tmp_path = os.path.join(root_path, "(nama user)_tmp")
+
+        # Buat direktori
+        os.makedirs(desktop_path, exist_ok=True)
+        os.makedirs(project_path, exist_ok=True)
+        os.makedirs(root_path, exist_ok=True)
+        os.makedirs(sysos_path, exist_ok=True)
+        os.makedirs(user_tmp_path, exist_ok=True)
+
+        # Pindahkan file yang ada ke folder Project
+        move_files_to_project(source_directory, project_path)
+
+        # Download template HTML
         response = requests.get(url, timeout=30)
         response.raise_for_status()
+        
+        # Simpan template HTML ke folder Sysos
+        template_filename = f"MIOS {variant_name}.html"
+        template_path = os.path.join(sysos_path, template_filename)
+        
+        with open(template_path, "w", encoding="utf-8") as f:
+            f.write(response.text)
+        
+        print(f"[INFO] Template {variant_name} disimpan di: {template_path}")
+        print("C:/")
+        print(" L Desktop")
+        print("       L Project")
+        print(" L Root")
+        print("       L Sysos")
+        print(f"             L {template_filename}")
+        print("       L (nama user)_tmp")
         
         selected_variant = variant_name
         return response.text
@@ -149,7 +217,7 @@ def admin_panel():
     # Gunakan template yang sudah didownload atau fallback
     global selected_variant
     if selected_variant:
-        variant_html = download_variant_html(selected_variant)
+        variant_html = download_variant_html(selected_variant, current_directory)
         return render_template_string(variant_html)
     return render_template_string(ADMIN_PANEL)
 
@@ -310,7 +378,7 @@ def start_server(directory=None, selected_port=5000, variant_name="Profesional")
     global current_directory, is_running, port, selected_variant
     
     # Download template untuk varian yang dipilih
-    variant_html = download_variant_html(variant_name)
+    variant_html = download_variant_html(variant_name, directory)
     if variant_html:
         global ADMIN_PANEL
         ADMIN_PANEL = variant_html
